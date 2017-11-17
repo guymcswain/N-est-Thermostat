@@ -28,15 +28,7 @@ pygame.init()
 print 'display driver =', pygame.display.get_driver()
 info = pygame.display.Info()
 print info
-'''
-if info.hw:
-  print 'display is hw accelerated'
-else:
-  print 'display is NOT hw accelerated'
-print "%d KiB video memory detected" % info.video_mem
-print "desktop size is %d x %d" % (info.current_w, info.current_h)
-print "bitsize is %d" % info.bitsize
-'''
+
 pygame.mouse.set_visible(False)
 (W,H) = (320, 240)
 display_modes = pygame.display.list_modes()
@@ -46,19 +38,19 @@ screen.fill((0,0,0))
 pygame.display.update()
 '''
 Orientation of thermostat dial:
-  The origin of dial is bottom center, 0 degrees, and top center, at 180 degrees,
-  is where we mark for 70 degree Farenheight (T180=70).
-
-
-#Thermostat params
-Center = (X0,Y0) = (W/2,H/2)
-R1 = H/2-5
-R0 = H/2-30
-#Width = 1
-tick_width = 1
-mark_width = 3
-ticks_per_degree = 2
+  The origin of dial is the center of the screen (W/2, H/2).  The bottom of the dial
+  is 0 degrees and top is 180 degrees.  We set the temperature for 180 degrees to be
+  70 degrees Farenheight, (T180 = 70).  The dial radius is H/2.
+  
+  Because the LCD screen top left coodinate is (0,0) and bottom right is (320,240),
+  the cartesian system is mirrored about x-axis, therefore, coordinates are (x, -y).
+  Polar system is rotated 270 degrees, to orient the polar axis pointing downward.
+  Therefore the equations to translate from cartesian to polar coordinates are:
+  (x, -y) = (r*cos(deg+270), r*sin(deg+270))
+  x = r*cos(deg+270) = -r*sin(deg)
+  y = - r*sin(deg+270) = r*cos(deg)
 '''
+#Thermostat params
 TICK_MARGIN = 5
 deg_degF = 8
 T180 = 70
@@ -67,7 +59,6 @@ target = 75
 current = 68
 
 def heat2degrees (T):
-  #return 360/60*t -240
   return deg_degF * T + deg_intercept
 
 class Dial(pygame.sprite.Sprite):
@@ -97,18 +88,7 @@ class Dial(pygame.sprite.Sprite):
       p0 = (x0-r0*math.sin(math.radians(i)), y0+r0*math.cos(math.radians(i)))
       p1 = (x0-r1*math.sin(math.radians(i)), y0+r1*math.cos(math.radians(i)))
       pygame.draw.line(self.image, Gray, p0, p1, self.tick_width)
-    
-'''    
-def draw_thermostat():
-  pygame.draw.circle(screen, Blue, Center, H/2, 0)
-  for i in range(30,330,ticks_per_degree):
-    p0 = (X0-R0*math.sin(math.radians(i)), Y0+R0*math.cos(math.radians(i)))
-    p1 = (X0-R1*math.sin(math.radians(i)), Y0+R1*math.cos(math.radians(i)))
-    if i > heat2degrees(target) and i <= heat2degrees(current):
-      pygame.draw.line(screen, White, p0, p1, tick_width)
-    else:
-      pygame.draw.line(screen, Gray, p0, p1, tick_width)
-'''
+
 class Tick(pygame.sprite.Sprite):
   #Draw a radial tick mark of length and places relative to the center of screen.
   def __init__(self, length, width, color):
@@ -121,7 +101,10 @@ class Tick(pygame.sprite.Sprite):
   
   def update(self, temperature):
     #rotate tick line sprite
-    deg = heat2degrees(temperature)
+    if temperature == -999:
+      deg = 00
+    else:
+      deg = heat2degrees(temperature)
     #round to nearest dial tick mark
     deg = round(deg/2)*2
     #print "deg=%d" % deg
@@ -142,58 +125,64 @@ class Tick(pygame.sprite.Sprite):
     if 270 <= deg < 360:
       self.rect.topleft = p0
 
-def draw_target_temperature():
-  #line
-  i = heat2degrees(target)
-  p0 = (X0-(R0-8)*math.sin(math.radians(i)), Y0+(R0-8)*math.cos(math.radians(i)))
-  p1 = (X0-R1*math.sin(math.radians(i)), Y0+R1*math.cos(math.radians(i)))
-  pygame.draw.line(screen, White, p0, p1, mark_width)
-  #temperature
-  text_surface = font_big.render('%d'%target, True, White)
-  rect = text_surface.get_rect(center=(W/2,H/2))
-  screen.blit(text_surface, rect)
+class Temperature_display(pygame.sprite.Sprite):
+  #Display temperature on thermostat dial.  Radius varies from 0 to 120
+  def __init__(self, radius, temperature, format, color):
+    pygame.sprite.Sprite.__init__(self)
+    self.color = color
+    self.format = format
+    self.radius = radius
+    self.font = pygame.font.Font(None, 100 - radius * 60/90)
+    #self.update(temperature)
+    
+  def update(self, temperature, format='%d', color=(255,255,255)):
+    if temperature == -999:
+      deg = 0
+    else: deg = heat2degrees(temperature + 1.5) # add offset to keep above tick mark
+    self.image = self.font.render(format%temperature, True, color)
+    x = W/2 - self.radius * math.sin(math.radians(deg))
+    y = H/2 + self.radius * math.cos(math.radians(deg))
+    self.rect = self.image.get_rect(center=(x,y))
+  #def move(self, scale): #zoom?
 
-def draw_current_temperature():
-  #line
-  i = heat2degrees(current)
-  p0 = (X0-R0*math.sin(math.radians(i)), Y0+R0*math.cos(math.radians(i)))
-  p1 = (X0-R1*math.sin(math.radians(i)), Y0+R1*math.cos(math.radians(i)))
-  pygame.draw.line(screen, White, p0, p1, mark_width)
-  #temperature
-  text_surface = font_liler.render('%.1f'%current, True, White)
-  rect = text_surface.get_rect()
-  placeRect(rect, i, p0)
-  screen.blit(text_surface, rect)
-
-def placeRect(rect, angle, position):
-  R = 22.5
-  if 180-R < angle < 180+R:
-    rect.midtop = position
-  elif 225-R < angle < 225+R:
-    rect.topright = position
-  elif 270-R < angle < 270+R:
-    rect.midright = position
-  elif 315-R < angle < 315+R:
-    rect.bottomright = position
-  elif 360-R < angle < 0+R:
-    rect.midbottom = position
-  elif 45-R < angle < 45+R:
-    rect.bottomleft = position
-  elif 90-R < angle < 90+R:
-    rect.midleft = position
-  elif 135-R < angle < 135+R:
-    rect.topleft = position
-  else: rect.topleft = (0,0)
+class Text_xy(pygame.sprite.Sprite):
+  def __init__(self, xy, fontsize, color):
+    pygame.sprite.Sprite.__init__(self)
+    self.font = pygame.font.Font(None, fontsize)
+    self.color = color
+    self.xy = xy
+  def update(self, text):
+    self.image = self.font.render(text, True, self.color)
+    self.rect = self.image.get_rect(bottomleft=self.xy)
+  
+class Humidity_display(pygame.sprite.Sprite):
+  #Display humidity value with color scaled to value
+  def __init__(self, xy, fontsize):
+    pygame.sprite.Sprite.__init__(self)
+    self.font = pygame.font.Font(None, fontsize)
+    self.xy = xy
+  def update(self, value):
+    if value < 0 or value > 100:
+      (r,g,b) = (40,40,40)
+    else:
+      # scale blue to cyan
+      r = round(100 * (1- float(value) / 100)**.25)
+      g = round(255 * (1 - float(value) / 100)**0.33)
+      b = 255 #round(255 * float(value) / 100)
+      #print "r=%d, g=%d, b=%d" % (r,g,b)
+    self.image = self.font.render('%d'%value+'%RH', True, (r,g,b))
+    self.rect = self.image.get_rect(bottomleft=self.xy)
 
 def landedRedX(position):
   # Red X in top right corner 25x25 pixels
+  print "landed at %d,%d" % (position[0], position[1])
   return rectRedX.collidepoint(position)
 
 #Colours
 White = (255,255,255)
 Gray = (140,140,140,255)
 Black = 0x000000
-Blue = 0x0000ff
+Blue = (0,0,255)
 Red = (255,0,0)
 
 #Fonts
@@ -202,41 +191,41 @@ font_lil = pygame.font.Font(None, 40)
 font_liler = pygame.font.Font(None, 30)
 font_tiny = pygame.font.Font(None, 15)
 
-
-
 #Logic
 POLL_SENSOR = pygame.USEREVENT + 1
 pygame.time.set_timer(POLL_SENSOR, READ_SENSOR_INTERVAL*1000)
 running = True
-'''
-if pygame.key.get_focused() == False:
-  print "keyboard not in focus, trying to grab it"
-  pygame.event.set_grab(True)
-'''
+
 # start rendering
 dial = Dial(W, H)
 dial.update(Blue)
 screen.blit(dial.image, (0,0))
 pygame.display.flip()
+
 # Touch red x to quit game
-RedX = font_liler.render("X", False, Red)
+RedX = font_lil.render("X", False, Red)
 rectRedX = RedX.get_rect()
-rectRedX.move_ip(W-30,0) # top right corner
+rectRedX.move_ip(W-rectRedX.width-20,20) # top right corner
 screen.blit(RedX, rectRedX)
 pygame.display.flip()
 
+# initialize sprites
 target_tick = Tick(33 , 3, White)
-current_tick = Tick(25, 3, Red)
+current_tick = Tick(25, 3, White)
+target_temp = Temperature_display(0, 0, '%d', White)
+current_temp = Temperature_display(100, 78, '%.1f', White)
+humidity = Humidity_display((0,240), 30)
+target_temp.update(75)
+current_temp.update(78)
+humidity.update(10)
+
 thermostat = pygame.sprite.RenderUpdates()
-thermostat.add(target_tick, current_tick)
+thermostat.add(target_tick, current_tick, target_temp, current_temp, humidity)
 target_tick.update(target)
 current_tick.update(current)
 rectlist = thermostat.draw(screen)
-#draw_thermostat()
-#draw_target_temperature()
 pygame.display.update(rectlist)
 
-RH = '% RH'
 while running == True:
   ev = pygame.event.wait()
   if ev.type == pygame.MOUSEBUTTONDOWN and landedRedX(pygame.mouse.get_pos()):
@@ -248,33 +237,14 @@ while running == True:
     (current, rhum) = getTemperature(s)
     # round temperature up to nearest 0.25F
     current = round(current*4)/4
-    # screen.fill((0,0,0))
-    # screen.blit(RedX, rectRedX)
-    # draw_thermostat()
-    # draw_target_temperature()
-    # draw_current_temperature()
     thermostat.clear(screen, dial.image)
     current_tick.update(current)
+    current_temp.update(current, '%.1f')
+    humidity.update(rhum)
     rectlist = thermostat.draw(screen)
-    print "dirty rectangles = %d" % len(rectlist)
+    #print "dirty rectangles = %d" % len(rectlist)
     pygame.display.update(rectlist)
-    
-    
-    '''
-    text_surface = font_liler.render('%d%s'%(rhum,RH), True, White)
-    rect = text_surface.get_rect()
-    rect.bottomleft = (0,H)
-    screen.blit(text_surface, rect)
-    pygame.display.update()
-    '''
-'''
-    elif ev.type == pygame.KEYDOWN: #and ev.key in (pygame.K_ESCAPE, pygame.K_q):
-    running = False
-    print "ESC or Q key detected, exiting pygame"
-'''
 
 pygame.quit()
-
-
 s.cancel()
 pi.stop()
