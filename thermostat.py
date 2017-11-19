@@ -2,40 +2,62 @@ import pygame
 import os
 from time import sleep
 import math
-import pigpio
-import DHT11
 
-# Intervals of about 2 seconds or less will eventually hang the DHT22.
-READ_SENSOR_INTERVAL = 3
-
-pi = pigpio.pi("10.0.0.105")  #surveyor pi
-if not pi.connected:
-  print "can't connect to pi @ 10.0.0.105, exiting"
-  exit(0)
-print 'connected to pi @ 10.0.0.105'
-
-s = DHT11.sensor(pi, 22)
-def getTemperature(sensor):
-  sensor.trigger()
-  sleep(0.2)
-  return (sensor.temperature(), sensor.humidity())
-
-os.putenv('SDL_FBDEV', '/dev/fb1')
-os.putenv('SDL_MOUSEDRV', 'TSLIB')
-os.putenv('SDL_MOUSEDEV', '/dev/input/event0')
 pygame.init()
+screen=0 # global var for display
 # Get information about display
 print 'display driver =', pygame.display.get_driver()
 info = pygame.display.Info()
 print info
-
-pygame.mouse.set_visible(False)
-(W,H) = (320, 240)
 display_modes = pygame.display.list_modes()
 print display_modes
-screen = pygame.display.set_mode((W,H), pygame.FULLSCREEN)
+screen_resolution = 0
+# set up the screen and device drivers per type of machine we are running on
+machine_type = os.uname()[4]
+desktop = 'x86_64'
+if machine_type != desktop: # assume RPI ZeroW with patched kernel for ft6236
+  os.putenv('SDL_FBDEV', '/dev/fb1')
+  os.putenv('SDL_MOUSEDRV', 'TSLIB')
+  os.putenv('SDL_MOUSEDEV', '/dev/input/event0')
+  screen_resolution = display_modes[0] # pick highest/only res
+  screen = pygame.display.set_mode(screen_resolution, pygame.FULLSCREEN)
+  pygame.mouse.set_visible(False)
+else: # desktop running in X11 windows
+  screen_resolution = display_modes[len(display_modes)-1] # pick lowest res
+  screen = pygame.display.set_mode(screen_resolution, pygame.RESIZABLE)
+  pygame.display.set_caption('Thermostat (%d, %d)'%screen_resolution, 'Tstat')
+  pygame.mouse.set_visible(True)
+(W,H) = screen_resolution
+print "screen size is (%d, %d)" % (W, H)
 screen.fill((0,0,0))
 pygame.display.update()
+
+# Set up sensor if on RPI, else use dummy if on pc
+s = 0 # sensor instance, eventually
+import pigpio
+import Dummy_sensor
+import DHT11
+import socket
+try:
+  sock = socket.create_connection(('10.0.0.105', 8888), timeout=3)
+  print 'got sock connection!'
+  pi = pigpio.pi("10.0.0.105")  #surveyor pi
+  if not pi.connected: #use dummy sensor
+    print 'not connected, wtf?  exiting ...'
+    exit()
+  print 'connected to surveyor!' 
+  s = DHT11.sensor(pi, 22)
+except:
+  print 'no connection to surveyor sensor, using dummy'
+  s = Dummy_sensor.Sensor(68, 51)
+
+READ_SENSOR_INTERVAL = 3 # Intervals <=2 seconds will eventually hang the DHT22.
+''' -- deprecated --
+def getTemperature(sensor):
+  sensor.trigger()
+  sleep(0.2)
+  return (sensor.temperature(), sensor.humidity())
+'''
 '''
 Orientation of thermostat dial:
   The origin of dial is the center of the screen (W/2, H/2).  The bottom of the dial
@@ -64,16 +86,15 @@ def heat2degrees (T):
 class Dial(pygame.sprite.Sprite):
   def __init__(self, width, height):
     pygame.sprite.Sprite.__init__(self)
-    
     self.image = pygame.Surface([width, height])
     self.image.fill((0,0,0))
     self.rect = self.image.get_rect()
-    self.tick_length = 25
-    self.tick_len = 25
+    self.tick_length = H*5/48 #25
+    #self.tick_len = 25
     self.tick_width = 1
-    self.tick_margin = 5
+    self.tick_margin = H*1/48 #5
     self.deg_per_tick = 2
-    
+
   def update(self, color):
     center = (x0, y0) = (self.rect.center)
     print "x0=%d, y0=%d"%(x0,y0)
@@ -87,7 +108,9 @@ class Dial(pygame.sprite.Sprite):
     for i in range(30, 330, self.deg_per_tick):
       p0 = (x0-r0*math.sin(math.radians(i)), y0+r0*math.cos(math.radians(i)))
       p1 = (x0-r1*math.sin(math.radians(i)), y0+r1*math.cos(math.radians(i)))
-      pygame.draw.line(self.image, Gray, p0, p1, self.tick_width)
+      if machine_type == desktop:
+        pygame.draw.aaline(self.image, Gray, p0, p1, self.tick_width)
+      else: pygame.draw.line(self.image, Gray, p0, p1, self.tick_width)
 
 class Tick(pygame.sprite.Sprite):
   #Draw a radial tick mark of length and places relative to the center of screen.
@@ -111,7 +134,7 @@ class Tick(pygame.sprite.Sprite):
     self.image = pygame.transform.rotate(self.surface, -deg)
     self.rect = self.image.get_rect()
     #place tick line sprite on dial
-    r = H / 2 - TICK_MARGIN
+    r = H / 2 - H*1/48#TICK_MARGIN
     (x0, y0) = (W/2, H/2) # screen center
     len = self.surface.get_rect().height
     #print "len=%d" % len
@@ -132,16 +155,19 @@ class Temperature_display(pygame.sprite.Sprite):
     self.color = color
     self.format = format
     self.radius = radius
-    self.font = pygame.font.Font(None, 100 - radius * 60/90)
+    self.font = pygame.font.Font(None, H*5/12 - radius * H*3/12/(H/2-H/8))
     #self.update(temperature)
     
   def update(self, temperature, format='%d', color=(255,255,255)):
-    if temperature == -999:
-      deg = 0
-    else: deg = heat2degrees(temperature + 1.5) # add offset to keep above tick mark
+    if temperature == -999: deg = 0
+    else: deg = heat2degrees(temperature)
+    if target <= temperature:
+      adv = 12 # advance or retard depending on system mode
+    else:
+      adv = -12
     self.image = self.font.render(format%temperature, True, color)
-    x = W/2 - self.radius * math.sin(math.radians(deg))
-    y = H/2 + self.radius * math.cos(math.radians(deg))
+    x = W/2 - self.radius * math.sin(math.radians(deg+adv))
+    y = H/2 + self.radius * math.cos(math.radians(deg+adv))
     self.rect = self.image.get_rect(center=(x,y))
   #def move(self, scale): #zoom?
 
@@ -193,7 +219,13 @@ font_tiny = pygame.font.Font(None, 15)
 
 #Logic
 POLL_SENSOR = pygame.USEREVENT + 1
-pygame.time.set_timer(POLL_SENSOR, READ_SENSOR_INTERVAL*1000)
+TRIGGER_SENSOR = pygame.USEREVENT + 2
+'''
+if machine_type == desktop:
+  pygame.time.set_timer(POLL_SENSOR, READ_SENSOR_INTERVAL*1000)
+else: pygame.time.set_timer(POLL_SENSOR, READ_SENSOR_INTERVAL*1000)
+'''
+pygame.time.set_timer(TRIGGER_SENSOR, READ_SENSOR_INTERVAL*1000)
 running = True
 
 # start rendering
@@ -210,13 +242,13 @@ screen.blit(RedX, rectRedX)
 pygame.display.flip()
 
 # initialize sprites
-target_tick = Tick(33 , 3, White)
-current_tick = Tick(25, 3, White)
+target_tick = Tick(H*33/240 , 3, White)
+current_tick = Tick(H*5/48, 3, White)
 target_temp = Temperature_display(0, 0, '%d', White)
-current_temp = Temperature_display(100, 78, '%.1f', White)
-humidity = Humidity_display((0,240), 30)
+current_temp = Temperature_display(H/2-H/12, 78, '%.1f', White)
+humidity = Humidity_display((0,H), 30)
 target_temp.update(75)
-current_temp.update(78)
+current_temp.update(current)
 humidity.update(10)
 
 thermostat = pygame.sprite.RenderUpdates()
@@ -230,16 +262,24 @@ while running == True:
   ev = pygame.event.wait()
   if ev.type == pygame.MOUSEBUTTONDOWN and landedRedX(pygame.mouse.get_pos()):
     running = False # quit the game
-  #elif ev.type == pygame.MOUSEBUTTONUP or ev.type == pygame.MOUSEMOTION:
-    # ignore for now
-
-  elif ev.type == POLL_SENSOR:
-    (current, rhum) = getTemperature(s)
-    # round temperature up to nearest 0.25F
-    current = round(current*4)/4
+  if machine_type == desktop:
+    if ev.type == pygame.MOUSEBUTTONDOWN:
+      pygame.time.set_timer(POLL_SENSOR, 0)
+    if ev.type == pygame.MOUSEBUTTONUP: #or ev.type == pygame.MOUSEMOTION:
+      pygame.time.set_timer(POLL_SENSOR, 100)
+    if ev.type == pygame.QUIT: running = False # quit the game
+  if ev.type == TRIGGER_SENSOR:
+    s.trigger()
+    pygame.time.set_timer(POLL_SENSOR, 200)
+  if ev.type == POLL_SENSOR:
+    pygame.time.set_timer(POLL_SENSOR, 0)
+    #(current, rhum) = getTemperature(s) # WAIT 200 MSEC!!!!
+    current = s.temperature()
+    rhum = s.humidity()
+    current = round(current*4)/4 # round temperature up to nearest 0.25F
     thermostat.clear(screen, dial.image)
     current_tick.update(current)
-    current_temp.update(current, '%.1f')
+    current_temp.update(current, '%d')
     humidity.update(rhum)
     rectlist = thermostat.draw(screen)
     #print "dirty rectangles = %d" % len(rectlist)
@@ -247,4 +287,4 @@ while running == True:
 
 pygame.quit()
 s.cancel()
-pi.stop()
+if machine_type != desktop: pi.stop()
