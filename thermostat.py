@@ -220,6 +220,7 @@ font_tiny = pygame.font.Font(None, 15)
 #Logic
 POLL_SENSOR = pygame.USEREVENT + 1
 TRIGGER_SENSOR = pygame.USEREVENT + 2
+RESIZE_SCREEN = pygame.USEREVENT + 3
 '''
 if machine_type == desktop:
   pygame.time.set_timer(POLL_SENSOR, READ_SENSOR_INTERVAL*1000)
@@ -251,14 +252,19 @@ target_temp.update(75)
 current_temp.update(current)
 humidity.update(10)
 
-thermostat = pygame.sprite.RenderUpdates()
-thermostat.add(target_tick, current_tick, target_temp, current_temp, humidity)
+# set up the sprite groups
+ambient = pygame.sprite.Group(current_temp, current_tick)
+setpoint = pygame.sprite.Group(target_temp, target_tick)
+thermostat = pygame.sprite.RenderUpdates(ambient.sprites(), setpoint.sprites())
+#thermostat.add(target_tick, current_tick, target_temp, current_temp, humidity)
+
 target_tick.update(target)
 current_tick.update(current)
 rectlist = thermostat.draw(screen)
 pygame.display.update(rectlist)
 
 while running == True:
+  pygame.event.pump() # is this needed???
   ev = pygame.event.wait()
   if ev.type == pygame.MOUSEBUTTONDOWN and landedRedX(pygame.mouse.get_pos()):
     running = False # quit the game
@@ -266,7 +272,8 @@ while running == True:
     if ev.type == pygame.MOUSEBUTTONDOWN:
       pygame.time.set_timer(POLL_SENSOR, 0)
     if ev.type == pygame.MOUSEBUTTONUP: #or ev.type == pygame.MOUSEMOTION:
-      pygame.time.set_timer(POLL_SENSOR, 100)
+      #pygame.time.set_timer(POLL_SENSOR, 100)
+      print 'mouse up'
     if ev.type == pygame.QUIT: running = False # quit the game
   if ev.type == TRIGGER_SENSOR:
     s.trigger()
@@ -278,12 +285,28 @@ while running == True:
     rhum = s.humidity()
     current = round(current*4)/4 # round temperature up to nearest 0.25F
     thermostat.clear(screen, dial.image)
-    current_tick.update(current)
-    current_temp.update(current, '%d')
+    #current_tick.update(current)
+    #current_temp.update(current, '%d')
+    ambient.update(current)
     humidity.update(rhum)
     rectlist = thermostat.draw(screen)
     #print "dirty rectangles = %d" % len(rectlist)
     pygame.display.update(rectlist)
+  if ev.type == pygame.VIDEORESIZE and machine_type == desktop:
+    '''
+    To ignore stream of events while dragging the mouse, reset a timer to generate
+    a resize event.  No mouse up/down events are generated during screen resizing.
+    '''
+    pygame.time.set_timer(RESIZE_SCREEN, 0)
+    newsize = ev.size
+    pygame.time.set_timer(RESIZE_SCREEN, 500)
+  if ev.type == RESIZE_SCREEN:
+    pygame.time.set_timer(RESIZE_SCREEN, 0)
+    (W,H) = newsize
+    pygame.display.set_mode(newsize, pygame.RESIZABLE)
+    dial.image = pygame.transform.smoothscale(dial.image, newsize)
+    screen.blit(dial.image, (0,0))
+    pygame.display.flip()
 
 pygame.quit()
 s.cancel()
