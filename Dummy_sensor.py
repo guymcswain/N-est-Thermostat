@@ -18,3 +18,5 @@ class Sensor:
     return self.rhum
   def cancel(self):
     return False
+  def type(self):
+    return 'dummy'

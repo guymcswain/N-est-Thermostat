@@ -1,9 +1,13 @@
 import pygame
-import os
+import os, sys
 from time import sleep
 import math
 
 pygame.init()
+if pygame.mixer.get_init() != None:
+  print 'sound detected, quiting mixer'
+  pygame.mixer.quit()
+else: print 'no sound detected'
 screen=0 # global var for display
 # Get information about display
 print 'display driver =', pygame.display.get_driver()
@@ -44,7 +48,7 @@ try:
   pi = pigpio.pi("10.0.0.105")  #surveyor pi
   if not pi.connected: #use dummy sensor
     print 'not connected, wtf?  exiting ...'
-    exit()
+    sys.exit()
   print 'connected to surveyor!' 
   s = DHT11.sensor(pi, 22)
 except:
@@ -87,23 +91,31 @@ class Dial(pygame.sprite.Sprite):
   def __init__(self, width, height):
     pygame.sprite.Sprite.__init__(self)
     self.image = pygame.Surface([width, height])
-    self.image.fill((0,0,0))
     self.rect = self.image.get_rect()
-    self.tick_length = H*5/48 #25
-    #self.tick_len = 25
+    self.radius = height / 2
+    self.tick_length = self.radius * 5 / 24 #25 #H*5/48
     self.tick_width = 1
-    self.tick_margin = H*1/48 #5
+    self.tick_margin =  self.radius * 1 / 24 #5 #H*1/48
     self.deg_per_tick = 2
+    self.color = Black
+    self.update(self.color)
+    
+  def resize(self, (w, h)):
+    self.image = pygame.transform.smoothscale(self.image, (w, h))
+    self.rect = self.image.get_rect()
+    self.radius = h/2
+    self.tick_length = self.radius * 5 / 24
+    self.tick_margin =  self.radius * 1 / 24
+    self.update(self.color)
 
-  def update(self, color):
+  def update(self, color=None):
+    if color != None: self.color = color
     center = (x0, y0) = (self.rect.center)
-    print "x0=%d, y0=%d"%(x0,y0)
-    radius = self.rect.height/2
-    print "radius=%d"%radius
     #draw circle with diameter of surface height, filled in
-    pygame.draw.circle(self.image, color, center, radius, 0)
+    self.image.fill((0,0,0))
+    pygame.draw.circle(self.image, self.color, center, self.radius, 0)
     #draw tick lines
-    r1 = radius - self.tick_margin
+    r1 = self.radius - self.tick_margin
     r0 = r1 - self.tick_length
     for i in range(30, 330, self.deg_per_tick):
       p0 = (x0-r0*math.sin(math.radians(i)), y0+r0*math.cos(math.radians(i)))
@@ -121,24 +133,34 @@ class Tick(pygame.sprite.Sprite):
     self.surface.fill(color)
     self.image = self.surface
     self.rect = self.image.get_rect()
+    self.r = H / 2 - H*1/48 #TICK_MARGIN
+    self.center = (self.x0, self.y0) = (W/2, H/2)
   
+  def resize(self, (w, h)):
+    self.r = h/2 - h/48
+    self.image = pygame.transform.smoothscale(self.image, (w, h))
+    #self.rect = self.image.get_rect() # doesn't matter?
+    self.center = (self.x0, self.y0) = (w/2, h/2)
+    self.update(self.temperature)
+
   def update(self, temperature):
     #rotate tick line sprite
     if temperature == -999:
       deg = 00
     else:
       deg = heat2degrees(temperature)
+    self.temperature = temperature
     #round to nearest dial tick mark
     deg = round(deg/2)*2
     #print "deg=%d" % deg
     self.image = pygame.transform.rotate(self.surface, -deg)
     self.rect = self.image.get_rect()
     #place tick line sprite on dial
-    r = H / 2 - H*1/48#TICK_MARGIN
-    (x0, y0) = (W/2, H/2) # screen center
+    #(x0, y0) = (W/2, H/2) # screen center
     len = self.surface.get_rect().height
     #print "len=%d" % len
-    p0 = (x0-(r-len)*math.sin(math.radians(deg)), y0+(r-len)*math.cos(math.radians(deg)))
+    p0 = (self.x0-(self.r-len)*math.sin(math.radians(deg))\
+         ,self.y0+(self.r-len)*math.cos(math.radians(deg)))
     if 0 <= deg < 90:
       self.rect.topright = p0
     if 90 <= deg < 180:
@@ -152,13 +174,21 @@ class Temperature_display(pygame.sprite.Sprite):
   #Display temperature on thermostat dial.  Radius varies from 0 to 120
   def __init__(self, radius, temperature, format, color):
     pygame.sprite.Sprite.__init__(self)
-    self.color = color
+    self.temperature = temperature
     self.format = format
+    self.color = color
     self.radius = radius
+    self.center = (self.x0, self.y0) = (W/2, H/2)
     self.font = pygame.font.Font(None, H*5/12 - radius * H*3/12/(H/2-H/8))
-    #self.update(temperature)
-    
+    self.update(self.temperature, self.format, self.color)
+  
+  def resize(self, (w, h)):
+    self.radius = self.radius * h/(2*self.y0)
+    self.center = (self.x0, self.y0) = (w/2, h/2)
+    self.update(self.temperature, self.format, self.color)
+
   def update(self, temperature, format='%d', color=(255,255,255)):
+    self.temperature = temperature
     if temperature == -999: deg = 0
     else: deg = heat2degrees(temperature)
     if target <= temperature:
@@ -166,8 +196,8 @@ class Temperature_display(pygame.sprite.Sprite):
     else:
       adv = -12
     self.image = self.font.render(format%temperature, True, color)
-    x = W/2 - self.radius * math.sin(math.radians(deg+adv))
-    y = H/2 + self.radius * math.cos(math.radians(deg+adv))
+    x = self.x0 - self.radius * math.sin(math.radians(deg+adv))
+    y = self.y0 + self.radius * math.cos(math.radians(deg+adv))
     self.rect = self.image.get_rect(center=(x,y))
   #def move(self, scale): #zoom?
 
@@ -185,8 +215,13 @@ class Humidity_display(pygame.sprite.Sprite):
   #Display humidity value with color scaled to value
   def __init__(self, xy, fontsize):
     pygame.sprite.Sprite.__init__(self)
+    self.fontsize = fontsize
     self.font = pygame.font.Font(None, fontsize)
     self.xy = xy
+  def resize(self, (w, h)):
+    self.fontsize = int(self.fontsize * h/float(self.xy[1]))
+    self.font = pygame.font.Font(None, self.fontsize)
+    self.xy = (0, h)
   def update(self, value):
     if value < 0 or value > 100:
       (r,g,b) = (40,40,40)
@@ -204,6 +239,11 @@ def landedRedX(position):
   print "landed at %d,%d" % (position[0], position[1])
   return rectRedX.collidepoint(position)
 
+class ResizableGroup(pygame.sprite.Group):
+  def resize(self, size):
+    for sprite in self.sprites():
+      sprite.resize(size)
+
 #Colours
 White = (255,255,255)
 Gray = (140,140,140,255)
@@ -218,15 +258,20 @@ font_liler = pygame.font.Font(None, 30)
 font_tiny = pygame.font.Font(None, 15)
 
 #Logic
+fpsClock = pygame.time.Clock()
+FPS = 20
 POLL_SENSOR = pygame.USEREVENT + 1
 TRIGGER_SENSOR = pygame.USEREVENT + 2
 RESIZE_SCREEN = pygame.USEREVENT + 3
 '''
-if machine_type == desktop:
+
   pygame.time.set_timer(POLL_SENSOR, READ_SENSOR_INTERVAL*1000)
 else: pygame.time.set_timer(POLL_SENSOR, READ_SENSOR_INTERVAL*1000)
 '''
-pygame.time.set_timer(TRIGGER_SENSOR, READ_SENSOR_INTERVAL*1000)
+if s.type() == 'DHT11':
+  pygame.time.set_timer(TRIGGER_SENSOR, READ_SENSOR_INTERVAL*1000)
+#elif s.type() == 'dummy':
+#  pygame.time.set_timer(TRIGGER_SENSOR, READ_SENSOR_INTERVAL*1000)
 running = True
 
 # start rendering
@@ -255,7 +300,8 @@ humidity.update(10)
 # set up the sprite groups
 ambient = pygame.sprite.Group(current_temp, current_tick)
 setpoint = pygame.sprite.Group(target_temp, target_tick)
-thermostat = pygame.sprite.RenderUpdates(ambient.sprites(), setpoint.sprites())
+thermostat = pygame.sprite.RenderUpdates(ambient.sprites(), setpoint.sprites(), humidity)
+all = ResizableGroup(thermostat.sprites(), dial)
 #thermostat.add(target_tick, current_tick, target_temp, current_temp, humidity)
 
 target_tick.update(target)
@@ -265,49 +311,68 @@ pygame.display.update(rectlist)
 
 while running == True:
   pygame.event.pump() # is this needed???
-  ev = pygame.event.wait()
-  if ev.type == pygame.MOUSEBUTTONDOWN and landedRedX(pygame.mouse.get_pos()):
-    running = False # quit the game
-  if machine_type == desktop:
-    if ev.type == pygame.MOUSEBUTTONDOWN:
-      pygame.time.set_timer(POLL_SENSOR, 0)
-    if ev.type == pygame.MOUSEBUTTONUP: #or ev.type == pygame.MOUSEMOTION:
-      #pygame.time.set_timer(POLL_SENSOR, 100)
-      print 'mouse up'
-    if ev.type == pygame.QUIT: running = False # quit the game
-  if ev.type == TRIGGER_SENSOR:
-    s.trigger()
-    pygame.time.set_timer(POLL_SENSOR, 200)
-  if ev.type == POLL_SENSOR:
-    pygame.time.set_timer(POLL_SENSOR, 0)
-    #(current, rhum) = getTemperature(s) # WAIT 200 MSEC!!!!
-    current = s.temperature()
-    rhum = s.humidity()
-    current = round(current*4)/4 # round temperature up to nearest 0.25F
-    thermostat.clear(screen, dial.image)
-    #current_tick.update(current)
-    #current_temp.update(current, '%d')
-    ambient.update(current)
-    humidity.update(rhum)
-    rectlist = thermostat.draw(screen)
-    #print "dirty rectangles = %d" % len(rectlist)
-    pygame.display.update(rectlist)
-  if ev.type == pygame.VIDEORESIZE and machine_type == desktop:
-    '''
-    To ignore stream of events while dragging the mouse, reset a timer to generate
-    a resize event.  No mouse up/down events are generated during screen resizing.
-    '''
-    pygame.time.set_timer(RESIZE_SCREEN, 0)
-    newsize = ev.size
-    pygame.time.set_timer(RESIZE_SCREEN, 500)
-  if ev.type == RESIZE_SCREEN:
-    pygame.time.set_timer(RESIZE_SCREEN, 0)
-    (W,H) = newsize
-    pygame.display.set_mode(newsize, pygame.RESIZABLE)
-    dial.image = pygame.transform.smoothscale(dial.image, newsize)
-    screen.blit(dial.image, (0,0))
-    pygame.display.flip()
+  for ev in pygame.event.get():
+  #ev = pygame.event.wait()
+    if ev.type == pygame.MOUSEBUTTONDOWN and landedRedX(pygame.mouse.get_pos()):
+      running = False # quit the game
 
+    if machine_type == desktop:
+      if ev.type == pygame.MOUSEBUTTONDOWN:
+        pygame.time.set_timer(POLL_SENSOR, 0)
+      if ev.type == pygame.MOUSEBUTTONUP: #or ev.type == pygame.MOUSEMOTION:
+        #pygame.time.set_timer(POLL_SENSOR, 100)
+        print 'mouse up'
+
+    if ev.type == pygame.QUIT: running = False # quit the game
+
+    if ev.type == TRIGGER_SENSOR:
+      s.trigger()
+      if s.type() == 'DHT11':
+        pygame.time.set_timer(POLL_SENSOR, 200)
+      elif s.type() == 'dummy':
+        pygame.event.post(pygame.event.Event(POLL_SENSOR))
+
+    if ev.type == POLL_SENSOR:
+      if s.type() == 'DHT11': pygame.time.set_timer(POLL_SENSOR, 0)
+      #(current, rhum) = getTemperature(s) # WAIT 200 MSEC!!!!
+      current = s.temperature()
+      rhum = s.humidity()
+      current = round(current*4)/4 # round temperature up to nearest 0.25F
+      thermostat.clear(screen, dial.image)
+      ambient.update(current)
+      humidity.update(rhum)
+      rectlist = thermostat.draw(screen)
+      #print "dirty rectangles = %d" % len(rectlist)
+      pygame.display.update(rectlist)
+
+    if ev.type == pygame.VIDEORESIZE and machine_type == desktop:
+      '''
+      To ignore stream of events while dragging the mouse, reset a timer to generate
+      a resize event.  No mouse up/down events are generated during screen resizing.
+      '''
+      pygame.time.set_timer(RESIZE_SCREEN, 0)
+      newsize = ev.size
+      pygame.time.set_timer(RESIZE_SCREEN, 500)
+
+    if ev.type == RESIZE_SCREEN:
+      pygame.time.set_timer(RESIZE_SCREEN, 0)
+      pygame.display.set_mode(newsize, pygame.RESIZABLE)
+      all.resize(newsize)
+      (W,H) = newsize
+      screen.blit(dial.image, (0,0))
+      pygame.display.flip()
+
+  fpsClock.tick(FPS)
+  if s.type() == 'dummy':
+    #print 'post event TRIGGER_SENSOR'
+    pygame.event.post(pygame.event.Event(TRIGGER_SENSOR))
+
+# terminate
 pygame.quit()
 s.cancel()
-if machine_type != desktop: pi.stop()
+try:
+  pi
+  pi.stop()
+except:
+  pass
+sys.exit()

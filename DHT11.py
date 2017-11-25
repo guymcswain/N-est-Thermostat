@@ -237,4 +237,6 @@ class sensor:
       if self.cb != None:
          self.cb.cancel()
          self.cb = None
+   def type(self):
+     return 'DHT11'
 # End DHT11
