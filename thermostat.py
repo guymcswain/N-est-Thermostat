@@ -237,7 +237,10 @@ class Humidity_display(pygame.sprite.Sprite):
 def landedRedX(position):
   # Red X in top right corner 25x25 pixels
   print "landed at %d,%d" % (position[0], position[1])
-  return rectRedX.collidepoint(position)
+  landingRect = pygame.Rect(rectRedX.left-16, rectRedX.top-6, 50, 40)
+  #print "RedX topleft=(%d,%d)" % landingRect.topleft
+  #print "RedX bottomright=(%d,%d)" % landingRect.bottomright
+  return landingRect.collidepoint(position)
 
 class ResizableGroup(pygame.sprite.Group):
   def resize(self, size):
@@ -259,7 +262,7 @@ font_tiny = pygame.font.Font(None, 15)
 
 #Logic
 fpsClock = pygame.time.Clock()
-FPS = 20
+FPS = 10
 POLL_SENSOR = pygame.USEREVENT + 1
 TRIGGER_SENSOR = pygame.USEREVENT + 2
 RESIZE_SCREEN = pygame.USEREVENT + 3
@@ -283,7 +286,7 @@ pygame.display.flip()
 # Touch red x to quit game
 RedX = font_lil.render("X", False, Red)
 rectRedX = RedX.get_rect()
-rectRedX.move_ip(W-rectRedX.width-20,20) # top right corner
+rectRedX.move_ip(W/16,H/12) # top left corner
 screen.blit(RedX, rectRedX)
 pygame.display.flip()
 
@@ -359,6 +362,7 @@ while running == True:
       pygame.display.set_mode(newsize, pygame.RESIZABLE)
       all.resize(newsize)
       (W,H) = newsize
+      pygame.display.set_caption('Thermostat (%d, %d)'%newsize, 'Tstat')
       screen.blit(dial.image, (0,0))
       pygame.display.flip()
 
