@@ -3,6 +3,14 @@ import os, sys
 from time import sleep
 import math
 
+# set up the screen and device drivers per type of machine we are running on
+machine_type = os.uname()[4]
+desktop = 'x86_64'
+if machine_type != desktop: # assume RPI ZeroW with patched kernel for ft6236
+  os.putenv('SDL_FBDEV', '/dev/fb1')
+  os.putenv('SDL_MOUSEDRV', 'TSLIB')
+  os.putenv('SDL_MOUSEDEV', '/dev/input/touchscreen')
+
 pygame.init()
 if pygame.mixer.get_init() != None:
   print 'sound detected, quiting mixer'
@@ -16,21 +24,19 @@ print info
 display_modes = pygame.display.list_modes()
 print display_modes
 screen_resolution = 0
-# set up the screen and device drivers per type of machine we are running on
-machine_type = os.uname()[4]
-desktop = 'x86_64'
+
 if machine_type != desktop: # assume RPI ZeroW with patched kernel for ft6236
-  os.putenv('SDL_FBDEV', '/dev/fb1')
-  os.putenv('SDL_MOUSEDRV', 'TSLIB')
-  os.putenv('SDL_MOUSEDEV', '/dev/input/event0')
+  print "Raspberry Pi machine type assumed"
   screen_resolution = display_modes[0] # pick highest/only res
   screen = pygame.display.set_mode(screen_resolution, pygame.FULLSCREEN)
   pygame.mouse.set_visible(False)
 else: # desktop running in X11 windows
+  print "X86_64 desktop detected"
   screen_resolution = display_modes[len(display_modes)-1] # pick lowest res
   screen = pygame.display.set_mode(screen_resolution, pygame.RESIZABLE)
   pygame.display.set_caption('Thermostat (%d, %d)'%screen_resolution, 'Tstat')
   pygame.mouse.set_visible(True)
+
 (W,H) = screen_resolution
 print "screen size is (%d, %d)" % (W, H)
 screen.fill((0,0,0))
@@ -83,6 +89,9 @@ T180 = 70
 deg_intercept = 180 - T180 * deg_degF
 target = 75
 current = 68
+inner_ring = H/2-H/8
+outer_ring = H/2
+core_ring = H/4
 
 def heat2degrees (T):
   return deg_degF * T + deg_intercept
@@ -247,6 +256,15 @@ class ResizableGroup(pygame.sprite.Group):
     for sprite in self.sprites():
       sprite.resize(size)
 
+def distance((x,y)):
+  return math.sqrt((W/2-x)**2 + (H/2-y)**2)
+
+def angle((x,y)):
+  return (math.degrees(math.atan2((y-H/2), (x-W/2))) + 270) % 360
+
+def deg2heat(deg):
+  return deg / deg_degF
+
 #Colours
 White = (255,255,255)
 Gray = (140,140,140,255)
@@ -266,6 +284,8 @@ FPS = 10
 POLL_SENSOR = pygame.USEREVENT + 1
 TRIGGER_SENSOR = pygame.USEREVENT + 2
 RESIZE_SCREEN = pygame.USEREVENT + 3
+initial_angle = 0
+changing_setpoint = False
 '''
 
   pygame.time.set_timer(POLL_SENSOR, READ_SENSOR_INTERVAL*1000)
@@ -276,6 +296,7 @@ if s.type() == 'DHT11':
 #elif s.type() == 'dummy':
 #  pygame.time.set_timer(TRIGGER_SENSOR, READ_SENSOR_INTERVAL*1000)
 running = True
+sensor_animate = True
 
 # start rendering
 dial = Dial(W, H)
@@ -312,6 +333,7 @@ current_tick.update(current)
 rectlist = thermostat.draw(screen)
 pygame.display.update(rectlist)
 
+pygame.event.set_blocked(pygame.MOUSEMOTION)
 while running == True:
   pygame.event.pump() # is this needed???
   for ev in pygame.event.get():
@@ -319,12 +341,40 @@ while running == True:
     if ev.type == pygame.MOUSEBUTTONDOWN and landedRedX(pygame.mouse.get_pos()):
       running = False # quit the game
 
-    if machine_type == desktop:
-      if ev.type == pygame.MOUSEBUTTONDOWN:
-        pygame.time.set_timer(POLL_SENSOR, 0)
-      if ev.type == pygame.MOUSEBUTTONUP: #or ev.type == pygame.MOUSEMOTION:
-        #pygame.time.set_timer(POLL_SENSOR, 100)
-        print 'mouse up'
+    if ev.type == pygame.MOUSEBUTTONDOWN:
+      position = pygame.mouse.get_pos()
+      sensor_animate = False
+      #landed on ring?
+      d = distance(position)
+      print "distance=%d" % d
+      if inner_ring <= d <= outer_ring:
+        changing_setpoint = True
+        initial_angle = angle(position)
+        print "initial angle=%d" % initial_angle
+        pygame.event.set_allowed(pygame.MOUSEMOTION) # needed for desktop
+
+    if ev.type == pygame.MOUSEMOTION and changing_setpoint:
+      ang = angle(pygame.mouse.get_pos())
+      dt = deg2heat(ang - initial_angle)
+      #print "angle=%d, delta heat=%d" % (ang, dt)
+      setpoint.update(target + dt)
+      thermostat.clear(screen, dial.image)
+      rectlist = thermostat.draw(screen)
+      #print "dirty rectangles = %d" % len(rectlist)
+      pygame.display.update(rectlist)
+
+    if ev.type == pygame.MOUSEBUTTONUP and changing_setpoint:
+      changing_setpoint = False
+      ang = angle(pygame.mouse.get_pos())
+      target += deg2heat(ang - initial_angle)
+      #print "angle=%d, delta heat=%d" % (ang, dt)
+      setpoint.update(target)
+      thermostat.clear(screen, dial.image)
+      rectlist = thermostat.draw(screen)
+      #print "dirty rectangles = %d" % len(rectlist)
+      pygame.display.update(rectlist)
+      #pygame.event.set_blocked(pygame.MOUSEMOTION)
+      #pygame.event.get(pygame.MOUSEMOTION) # clear all motion events
 
     if ev.type == pygame.QUIT: running = False # quit the game
 
@@ -367,7 +417,7 @@ while running == True:
       pygame.display.flip()
 
   fpsClock.tick(FPS)
-  if s.type() == 'dummy':
+  if s.type() == 'dummy' and sensor_animate:
     #print 'post event TRIGGER_SENSOR'
     pygame.event.post(pygame.event.Event(TRIGGER_SENSOR))
 
