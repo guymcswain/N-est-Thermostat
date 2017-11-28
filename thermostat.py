@@ -99,7 +99,7 @@ def heat2degrees (T):
 class Dial(pygame.sprite.Sprite):
   def __init__(self, width, height):
     pygame.sprite.Sprite.__init__(self)
-    self.image = pygame.Surface([width, height])
+    self.image = pygame.Surface((width, height))
     self.rect = self.image.get_rect()
     self.radius = height / 2
     self.tick_length = self.radius * 5 / 24 #25 #H*5/48
@@ -243,6 +243,39 @@ class Humidity_display(pygame.sprite.Sprite):
     self.image = self.font.render('%d'%value+'%RH', True, (r,g,b))
     self.rect = self.image.get_rect(bottomleft=self.xy)
 
+class Heaticon(pygame.sprite.Sprite):
+  def __init__(self, (w,h)):
+    self.image = pygame.Surface((w,h))
+    self.rect = pygame.Rect((0,0),(w,h))
+    #self.update()
+  def update(self):
+    pxarray = pygame.PixelArray(self.image)
+    (a,b) = pxarray.shape
+    #print "a=%d, b=%d" %(a,b)
+    if mode == COOLING:
+      color1, color2, color3 = (Blue, Blue, Blue)
+    elif mode == HEATING:
+      color1, color2, color3 = (ORANGE, ORANGE, ORANGE)
+    elif mode == COMBI:
+      color1, color2, color3 = (ORANGE, White, Blue)
+    else:
+      color1, color2, color3 = (White, White, White)
+    h = self.rect.height
+    lines = [(h/4, color1), (h/2, color2), (h*3/4, color3)]
+    for (line, color) in lines:
+      for x in range(0,a):
+        y = line - int(round(math.sin(2*math.pi*x/a) * b/8))
+        pxarray[x,y]   = color
+        pxarray[x,y-1] = color
+        pxarray[x,y+1] = color
+        #pxarray[x, y-1 - int(math.floor(math.sin(2*math.pi*x/a) * b/8))] = 0xffffff
+        #pxarray[x, y - int(round(math.sin(2*math.pi*x/a) * b/8))] = 0xffffff
+        #pxarray[x, y+1 - int(math.ceil(math.sin(2*math.pi*x/a) * b/8))] = 0xffffff
+    self.image = pxarray.make_surface()
+    #self.image = pygame.transform.rotate(pxarray.make_surface(), 45)
+    #self.image = pygame.transform.smoothscale(self.image, (int(.707*w), int(.707*h)))
+    self.rect = self.image.get_rect()
+
 def landedRedX(position):
   # Red X in top right corner 25x25 pixels
   print "landed at %d,%d" % (position[0], position[1])
@@ -271,6 +304,7 @@ Gray = (140,140,140,255)
 Black = 0x000000
 Blue = (0,0,255)
 Red = (255,0,0)
+ORANGE = (255, 128, 0)
 
 #Fonts
 font_big = pygame.font.Font(None, 100)
@@ -286,6 +320,8 @@ TRIGGER_SENSOR = pygame.USEREVENT + 2
 RESIZE_SCREEN = pygame.USEREVENT + 3
 initial_angle = 0
 changing_setpoint = False
+(COOLING, HEATING, COMBI, OFF) = (0, 1, 2, 3)
+mode = COOLING
 '''
 
   pygame.time.set_timer(POLL_SENSOR, READ_SENSOR_INTERVAL*1000)
@@ -310,6 +346,30 @@ rectRedX = RedX.get_rect()
 rectRedX.move_ip(W/16,H/12) # top left corner
 screen.blit(RedX, rectRedX)
 pygame.display.flip()
+
+# Mode icon
+modicon = Heaticon((W/8,W/8))
+modicon.update()
+screen.blit(modicon.image, (W-W/8, 0))
+pygame.display.flip()
+'''sleep(3)
+mode = HEATING
+modicon.update()
+screen.blit(modicon.image, (W-W/8, 0))
+pygame.display.flip()
+sleep(3)
+mode = COMBI
+modicon.update()
+screen.blit(modicon.image, (W-W/8, 0))
+pygame.display.flip()
+sleep(3)
+mode = OFF
+modicon.update()
+screen.blit(modicon.image, (W-W/8, 0))
+pygame.display.flip()
+sleep(3)
+pygame.quit()
+sys.exit()'''
 
 # initialize sprites
 target_tick = Tick(H*33/240 , 3, White)
@@ -352,6 +412,11 @@ while running == True:
         initial_angle = angle(position)
         print "initial angle=%d" % initial_angle
         pygame.event.set_allowed(pygame.MOUSEMOTION) # needed for desktop
+      elif modicon.rect.move(W-W/8,0).collidepoint(position):
+        mode = (mode + 1) % 4
+        modicon.update()
+        screen.blit(modicon.image, (W-W/8, 0))
+        pygame.display.flip()
 
     if ev.type == pygame.MOUSEMOTION and changing_setpoint:
       ang = angle(pygame.mouse.get_pos())
