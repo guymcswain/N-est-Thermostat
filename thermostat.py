@@ -244,10 +244,13 @@ class Humidity_display(pygame.sprite.Sprite):
     self.rect = self.image.get_rect(bottomleft=self.xy)
 
 class Heaticon(pygame.sprite.Sprite):
-  def __init__(self, (w,h)):
+  global mode
+  def __init__(self, (w,h), position):
+    pygame.sprite.Sprite.__init__(self)
     self.image = pygame.Surface((w,h))
-    self.rect = pygame.Rect((0,0),(w,h))
-    #self.update()
+    self.rect = pygame.Rect(position,(w,h))
+    self.position = position
+    self.update()
   def update(self):
     pxarray = pygame.PixelArray(self.image)
     (a,b) = pxarray.shape
@@ -268,13 +271,9 @@ class Heaticon(pygame.sprite.Sprite):
         pxarray[x,y]   = color
         pxarray[x,y-1] = color
         pxarray[x,y+1] = color
-        #pxarray[x, y-1 - int(math.floor(math.sin(2*math.pi*x/a) * b/8))] = 0xffffff
-        #pxarray[x, y - int(round(math.sin(2*math.pi*x/a) * b/8))] = 0xffffff
-        #pxarray[x, y+1 - int(math.ceil(math.sin(2*math.pi*x/a) * b/8))] = 0xffffff
     self.image = pxarray.make_surface()
-    #self.image = pygame.transform.rotate(pxarray.make_surface(), 45)
-    #self.image = pygame.transform.smoothscale(self.image, (int(.707*w), int(.707*h)))
     self.rect = self.image.get_rect()
+    self.rect.topleft = self.position
 
 def landedRedX(position):
   # Red X in top right corner 25x25 pixels
@@ -288,6 +287,11 @@ class ResizableGroup(pygame.sprite.Group):
   def resize(self, size):
     for sprite in self.sprites():
       sprite.resize(size)
+'''
+def Spreader(pygame.sprite.Sprite):
+  def __init__(self):
+    pygame.sprite.Sprite.__init__(self)
+ '''   
 
 def distance((x,y)):
   return math.sqrt((W/2-x)**2 + (H/2-y)**2)
@@ -297,6 +301,31 @@ def angle((x,y)):
 
 def deg2heat(deg):
   return deg / deg_degF
+
+def system_update():
+  global system, mode, current, target
+  if mode == COOLING:
+    if current < (target - 0.5) and system == SYSTEM_COOLING:
+      system = SYSTEM_OFF
+      dial.update(Black)
+      screen.blit(dial.image, (0,0))
+      pygame.display.flip()
+    if current >= target and system == SYSTEM_OFF:
+      system = SYSTEM_COOLING
+      dial.update(Blue)
+      screen.blit(dial.image, (0,0))
+      pygame.display.flip()
+  if mode == HEATING:
+    if current > (target - 0.5) and system == SYSTEM_HEATING:
+      system = SYSTEM_OFF
+      dial.update(Black)
+      screen.blit(dial.image, (0,0))
+      pygame.display.flip()
+    if current <= target and system == SYSTEM_OFF:
+      system = SYSTEM_HEATING
+      dial.update(ORANGE)
+      screen.blit(dial.image, (0,0))
+      pygame.display.flip()
 
 #Colours
 White = (255,255,255)
@@ -321,7 +350,9 @@ RESIZE_SCREEN = pygame.USEREVENT + 3
 initial_angle = 0
 changing_setpoint = False
 (COOLING, HEATING, COMBI, OFF) = (0, 1, 2, 3)
-mode = COOLING
+mode = HEATING
+SYSTEM_COOLING, SYSTEM_HEATING, SYSTEM_OFF, SYSTEM_FAN = (0, 1, 2, 3)
+system = SYSTEM_OFF
 '''
 
   pygame.time.set_timer(POLL_SENSOR, READ_SENSOR_INTERVAL*1000)
@@ -348,28 +379,7 @@ screen.blit(RedX, rectRedX)
 pygame.display.flip()
 
 # Mode icon
-modicon = Heaticon((W/8,W/8))
-modicon.update()
-screen.blit(modicon.image, (W-W/8, 0))
-pygame.display.flip()
-'''sleep(3)
-mode = HEATING
-modicon.update()
-screen.blit(modicon.image, (W-W/8, 0))
-pygame.display.flip()
-sleep(3)
-mode = COMBI
-modicon.update()
-screen.blit(modicon.image, (W-W/8, 0))
-pygame.display.flip()
-sleep(3)
-mode = OFF
-modicon.update()
-screen.blit(modicon.image, (W-W/8, 0))
-pygame.display.flip()
-sleep(3)
-pygame.quit()
-sys.exit()'''
+modicon = Heaticon((W/8,W/8), (W-W/8, 0))
 
 # initialize sprites
 target_tick = Tick(H*33/240 , 3, White)
@@ -384,7 +394,7 @@ humidity.update(10)
 # set up the sprite groups
 ambient = pygame.sprite.Group(current_temp, current_tick)
 setpoint = pygame.sprite.Group(target_temp, target_tick)
-thermostat = pygame.sprite.RenderUpdates(ambient.sprites(), setpoint.sprites(), humidity)
+thermostat = pygame.sprite.RenderUpdates(ambient.sprites(), setpoint.sprites(), humidity, modicon)
 all = ResizableGroup(thermostat.sprites(), dial)
 #thermostat.add(target_tick, current_tick, target_temp, current_temp, humidity)
 
@@ -395,6 +405,7 @@ pygame.display.update(rectlist)
 
 pygame.event.set_blocked(pygame.MOUSEMOTION)
 while running == True:
+  # Process events
   pygame.event.pump() # is this needed???
   for ev in pygame.event.get():
   #ev = pygame.event.wait()
@@ -412,34 +423,27 @@ while running == True:
         initial_angle = angle(position)
         print "initial angle=%d" % initial_angle
         pygame.event.set_allowed(pygame.MOUSEMOTION) # needed for desktop
-      elif modicon.rect.move(W-W/8,0).collidepoint(position):
+      elif modicon.rect.collidepoint(position):
         mode = (mode + 1) % 4
+        system = SYSTEM_OFF
         modicon.update()
-        screen.blit(modicon.image, (W-W/8, 0))
-        pygame.display.flip()
+        system_update()
 
     if ev.type == pygame.MOUSEMOTION and changing_setpoint:
       ang = angle(pygame.mouse.get_pos())
       dt = deg2heat(ang - initial_angle)
       #print "angle=%d, delta heat=%d" % (ang, dt)
       setpoint.update(target + dt)
-      thermostat.clear(screen, dial.image)
-      rectlist = thermostat.draw(screen)
-      #print "dirty rectangles = %d" % len(rectlist)
-      pygame.display.update(rectlist)
+      
 
     if ev.type == pygame.MOUSEBUTTONUP and changing_setpoint:
       changing_setpoint = False
       ang = angle(pygame.mouse.get_pos())
       target += deg2heat(ang - initial_angle)
       #print "angle=%d, delta heat=%d" % (ang, dt)
+      system_update()
       setpoint.update(target)
-      thermostat.clear(screen, dial.image)
-      rectlist = thermostat.draw(screen)
-      #print "dirty rectangles = %d" % len(rectlist)
-      pygame.display.update(rectlist)
-      #pygame.event.set_blocked(pygame.MOUSEMOTION)
-      #pygame.event.get(pygame.MOUSEMOTION) # clear all motion events
+      pygame.event.set_blocked(pygame.MOUSEMOTION)
 
     if ev.type == pygame.QUIT: running = False # quit the game
 
@@ -455,13 +459,10 @@ while running == True:
       #(current, rhum) = getTemperature(s) # WAIT 200 MSEC!!!!
       current = s.temperature()
       rhum = s.humidity()
+      system_update()
       current = round(current*4)/4 # round temperature up to nearest 0.25F
-      thermostat.clear(screen, dial.image)
       ambient.update(current)
       humidity.update(rhum)
-      rectlist = thermostat.draw(screen)
-      #print "dirty rectangles = %d" % len(rectlist)
-      pygame.display.update(rectlist)
 
     if ev.type == pygame.VIDEORESIZE and machine_type == desktop:
       '''
@@ -481,6 +482,13 @@ while running == True:
       screen.blit(dial.image, (0,0))
       pygame.display.flip()
 
+  # Render screen
+  thermostat.clear(screen, dial.image)
+  rectlist = thermostat.draw(screen)
+  #print "dirty rectangles = %d" % len(rectlist)
+  pygame.display.update(rectlist)
+  
+  # Control timing (and generate new events)
   fpsClock.tick(FPS)
   if s.type() == 'dummy' and sensor_animate:
     #print 'post event TRIGGER_SENSOR'
