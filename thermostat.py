@@ -287,6 +287,19 @@ class ResizableGroup(pygame.sprite.Group):
   def resize(self, size):
     for sprite in self.sprites():
       sprite.resize(size)
+
+class SpreadGroup(pygame.sprite.Group):
+  global current, target, tickmarks
+  def update(self):
+    self.empty()
+    if target > current:
+      for temp in (float(x)/4 for x in range(int(current*4)+1, int(target*4))):
+        self.add(tickmarks[round(temp, 2)])
+    elif current > target:
+      for temp in (float(x)/4 for x in range(int(target*4)+1, int(current*4))):
+        self.add(tickmarks[round(temp, 2)])
+
+
 '''
 def Spreader(pygame.sprite.Sprite):
   def __init__(self):
@@ -390,11 +403,29 @@ humidity = Humidity_display((0,H), 30)
 target_temp.update(75)
 current_temp.update(current)
 humidity.update(10)
-
+def deg2heat2(deg):
+  temp = float(deg) / deg_degF + 47.5
+  #round to nearest 1/4 degreeF
+  temp = round(temp*4)/4
+  return temp
+tickmarks = {}
+for temp in (deg2heat2(x) for x in range(31, 330, 2)): # deg/tick == 2
+  #print '{0:.2f}'.format(temp)
+  tickmarks[round(temp, 4)] = Tick(H*5/48, 1, White)
+  tickmarks[round(temp, 4)].update(temp)
+print sorted(tickmarks.keys())
 # set up the sprite groups
 ambient = pygame.sprite.Group(current_temp, current_tick)
 setpoint = pygame.sprite.Group(target_temp, target_tick)
-thermostat = pygame.sprite.RenderUpdates(ambient.sprites(), setpoint.sprites(), humidity, modicon)
+spread = SpreadGroup()
+spread.update()
+''' IMPORTANT: thermostat is a render group only.  Don't call update method! '''
+thermostat = pygame.sprite.RenderUpdates( ambient.sprites()
+                                        , setpoint.sprites()
+                                        , humidity
+                                        , modicon
+                                        , spread.sprites()
+                                        )
 all = ResizableGroup(thermostat.sprites(), dial)
 #thermostat.add(target_tick, current_tick, target_temp, current_temp, humidity)
 
@@ -443,6 +474,7 @@ while running == True:
       #print "angle=%d, delta heat=%d" % (ang, dt)
       system_update()
       setpoint.update(target)
+      #spread.update()
       pygame.event.set_blocked(pygame.MOUSEMOTION)
 
     if ev.type == pygame.QUIT: running = False # quit the game
@@ -463,6 +495,7 @@ while running == True:
       current = round(current*4)/4 # round temperature up to nearest 0.25F
       ambient.update(current)
       humidity.update(rhum)
+      #spread.update()
 
     if ev.type == pygame.VIDEORESIZE and machine_type == desktop:
       '''
@@ -484,8 +517,11 @@ while running == True:
 
   # Render screen
   thermostat.clear(screen, dial.image)
+  thermostat.remove(spread.sprites())
+  spread.update()
+  thermostat.add(spread.sprites())
   rectlist = thermostat.draw(screen)
-  #print "dirty rectangles = %d" % len(rectlist)
+  print "dirty rectangles = %d" % len(rectlist)
   pygame.display.update(rectlist)
   
   # Control timing (and generate new events)
