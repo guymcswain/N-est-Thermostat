@@ -294,10 +294,10 @@ class SpreadGroup(pygame.sprite.Group):
     thermostat.remove(self.sprites())
     self.empty()
     if target > current:
-      print 'current={0:.2f}'.format(current)
-      print 'target={0:.2f}'.format(target)
+      #print 'current={0:.2f}'.format(current)
+      #print 'target={0:.2f}'.format(target)
       for temp in (float(x)/4 for x in range(int(current*4)+1, int(target*4))):
-        print '{0:.2f}'.format(temp)
+        #print '{0:.2f}'.format(temp)
         self.add(tickmarks[round(temp, 2)])
     elif current > target:
       for temp in (float(x)/4 for x in range(int(target*4)+1, int(current*4))):
@@ -407,7 +407,7 @@ def deg2heat2(deg):
   temp = round(temp*4)/4
   return temp
 tickmarks = {}
-for temp in (deg2heat2(x) for x in range(31, 330, 2)): # deg/tick == 2
+for temp in (deg2heat2(x) for x in range(30, 330, 2)): # deg/tick == 2
   #print '{0:.2f}'.format(temp)
   tickmarks[round(temp, 4)] = Tick(H*5/48, 1, White)
   tickmarks[round(temp, 4)].update(temp)
@@ -444,7 +444,7 @@ while running == True:
 
     if ev.type == pygame.MOUSEBUTTONDOWN:
       position = pygame.mouse.get_pos()
-      sensor_animate = False
+      #sensor_animate = False
       #landed on ring?
       d = distance(position)
       print "distance=%d" % d
@@ -462,20 +462,18 @@ while running == True:
     if ev.type == pygame.MOUSEMOTION and changing_setpoint:
       ang = angle(pygame.mouse.get_pos())
       dt = deg2heat(ang - initial_angle)
+      initial_angle = ang
       #print "angle=%d, delta heat=%d" % (ang, dt)
-      setpoint.update(target + dt)
-      
+      target += dt
+      #round to nearest dial tick mark (1/4 degF)
+      target = round(target*4)/4
+      setpoint.update(target)
+      current_temp.update(current) # advance/retard wrt target
+      spread.update()
+      system_update()
 
     if ev.type == pygame.MOUSEBUTTONUP and changing_setpoint:
       changing_setpoint = False
-      ang = angle(pygame.mouse.get_pos())
-      target += deg2heat(ang - initial_angle)
-      #round to nearest dial tick mark (1/4 degF)
-      target = round(target*4)/4
-      #print "angle=%d, delta heat=%d" % (ang, dt)
-      system_update()
-      setpoint.update(target)
-      spread.update()
       pygame.event.set_blocked(pygame.MOUSEMOTION)
 
     if ev.type == pygame.QUIT: running = False # quit the game
