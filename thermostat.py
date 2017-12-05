@@ -62,12 +62,6 @@ except:
   s = Dummy_sensor.Sensor(68, 51)
 
 READ_SENSOR_INTERVAL = 3 # Intervals <=2 seconds will eventually hang the DHT22.
-''' -- deprecated --
-def getTemperature(sensor):
-  sensor.trigger()
-  sleep(0.2)
-  return (sensor.temperature(), sensor.humidity())
-'''
 '''
 Orientation of thermostat dial:
   The origin of dial is the center of the screen (W/2, H/2).  The bottom of the dial
@@ -99,7 +93,6 @@ relays = 'relays'
 (COOLING, HEATING, COMBI, OFF) = (0, 1, 2, 3)
 SYSTEM_COOLING, SYSTEM_HEATING, SYSTEM_OFF, SYSTEM_FAN = (0, 1, 2, 3)
 system = {target:None, current:None, mode:None, rhum:None, relays:None}
-
 
 def heat2degrees (T):
   return deg_degF * T + deg_intercept
@@ -268,16 +261,6 @@ class Temperature_display(pygame.sprite.DirtySprite):
       self.dirty = 1
   #def move(self, scale): #zoom?
 
-class Text_xy(pygame.sprite.Sprite):
-  def __init__(self, xy, fontsize, color):
-    pygame.sprite.Sprite.__init__(self)
-    self.font = pygame.font.Font(None, fontsize)
-    self.color = color
-    self.xy = xy
-  def update(self, text):
-    self.image = self.font.render(text, True, self.color)
-    self.rect = self.image.get_rect(bottomleft=self.xy)
-  
 class Humidity_display(pygame.sprite.Sprite):
   #Display humidity value with color scaled to value
   def __init__(self, xy, fontsize):
@@ -350,22 +333,6 @@ class ResizableGroup(pygame.sprite.Group):
     for sprite in self.sprites():
       sprite.resize(size)
 
-class SpreadGroup(pygame.sprite.Group):
-  global current, target, tickmarks, thermostat
-  def update(self):
-    thermostat.remove(self.sprites())
-    self.empty()
-    if target > current:
-      #print 'current={0:.2f}'.format(current)
-      #print 'target={0:.2f}'.format(target)
-      for temp in (float(x)/4 for x in range(int(current*4)+1, int(target*4))):
-        #print '{0:.2f}'.format(temp)
-        self.add(tickmarks[round(temp, 2)])
-    elif current > target:
-      for temp in (float(x)/4 for x in range(int(target*4)+1, int(current*4))):
-        self.add(tickmarks[round(temp, 2)])
-    thermostat.add(self.sprites())
- 
 def distance((x,y)):
   return math.sqrt((W/2-x)**2 + (H/2-y)**2)
 
@@ -415,11 +382,7 @@ system[relays] = SYSTEM_OFF
 system[target] = 75
 system[current] = 74
 system[rhum] = 30
-'''
 
-  pygame.time.set_timer(POLL_SENSOR, READ_SENSOR_INTERVAL*1000)
-else: pygame.time.set_timer(POLL_SENSOR, READ_SENSOR_INTERVAL*1000)
-'''
 if s.type() == 'DHT11':
   pygame.time.set_timer(TRIGGER_SENSOR, READ_SENSOR_INTERVAL*1000)
 #elif s.type() == 'dummy':
@@ -446,45 +409,24 @@ current_tick = Tick(current, H*5/48, 3, White)
 target_temp = Temperature_display(0, target, '%d', White)
 current_temp = Temperature_display(H/2-H/12, current, '%.1f', White)
 #humidity = Humidity_display((0,H), 30)
-#target_temp.update()
-#current_temp.update()
 #humidity.update(10)
 def deg2heat2(deg):
   temp = float(deg) / deg_degF + 47.5
   #round to nearest 1/4 degreeF
   temp = round(temp*4)/4
   return temp
-'''tickmarks = {}
-for temp in (deg2heat2(x) for x in range(30, 330, 2)): # deg/tick == 2
-  #print '{0:.2f}'.format(temp)
-  tickmarks[round(temp, 4)] = Tick(H*5/48, 1, White)
-  tickmarks[round(temp, 4)].update(temp)
-print sorted(tickmarks.keys()) '''
+
 tickmarklist = []
 for deg in range(30, 332, 2):
   tickmarklist.append(Tickmark(deg))
-print 'tick rot = %d, w = %d, h= %d' % (tickmarklist[30].rotation, tickmarklist[30].rect.w, tickmarklist[30].rect.h)
+
 # set up the sprite groups
-'''tickmarks = pygame.sprite.LayeredDirty()
-for i in tickmarklist:
-  tickmarks.add(i)'''
-#ambient = pygame.sprite.Group(current_temp, current_tick)
-#setpoint = pygame.sprite.Group(target_temp, target_tick)
-#spread = SpreadGroup()
-
-''' IMPORTANT: thermostat is a render group only.  Don't call update method! '''
 thermostat = pygame.sprite.LayeredDirty( dial, tickmarklist
-                                        , current_temp, current_tick  #ambient.sprites()
-                                        , target_temp, target_tick    #setpoint.sprites(), modicon
+                                        , current_temp, current_tick
+                                        , target_temp, target_tick
                                         , modicon)
-#spread.update()
-all = ResizableGroup(thermostat.sprites(), dial)
-#thermostat.add(target_tick, current_tick, target_temp, current_temp, humidity)
 
-target_tick.update()
-current_tick.update()
-rectlist = thermostat.draw(screen)
-pygame.display.update(rectlist)
+all = ResizableGroup(thermostat.sprites(), dial)
 
 pygame.event.set_blocked(pygame.MOUSEMOTION)
 while running == True:
@@ -521,10 +463,6 @@ while running == True:
         system[target] += dt
         #round to nearest dial tick mark (1/4 degF)
         system[target] = round(system[target]*4)/4
-        #setpoint.update(target)
-        #current_temp.update(current) # advance/retard wrt target
-        #spread.update()
-        #system_update()
 
     if ev.type == pygame.MOUSEBUTTONUP and changing_setpoint:
       changing_setpoint = False
@@ -544,11 +482,7 @@ while running == True:
       #(current, rhum) = getTemperature(s) # WAIT 200 MSEC!!!!
       system[current] = s.temperature()
       system[rhum] = s.humidity()
-      #system_update()
       system[current] = round(system[current]*4)/4 # round temperature up to nearest 0.25F
-      #ambient.update(current)
-      #humidity.update(rhum)
-      #spread.update()
 
     if ev.type == pygame.VIDEORESIZE and machine_type == desktop:
       '''
