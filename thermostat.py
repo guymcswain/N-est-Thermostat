@@ -82,65 +82,63 @@ Orientation of thermostat dial:
   x = r*cos(deg+270) = -r*sin(deg)
   y = - r*sin(deg+270) = r*cos(deg)
 '''
-#Thermostat params
+#Thermostat display params
 TICK_MARGIN = 5
 deg_degF = 8
 T180 = 70
 deg_intercept = 180 - T180 * deg_degF
-target = 75
-current = 74
 inner_ring = H/2-H/8
 outer_ring = H/2
 core_ring = H/4
+#Thermostat system part
+target = 'target'
+current = 'current'
+rhum = 'rhum'
+mode = 'mode'
+relays = 'relays'
+(COOLING, HEATING, COMBI, OFF) = (0, 1, 2, 3)
+SYSTEM_COOLING, SYSTEM_HEATING, SYSTEM_OFF, SYSTEM_FAN = (0, 1, 2, 3)
+system = {target:None, current:None, mode:None, rhum:None, relays:None}
+
 
 def heat2degrees (T):
   return deg_degF * T + deg_intercept
 
-class Dial(pygame.sprite.Sprite):
+class Dial(pygame.sprite.DirtySprite):
+  global system
   def __init__(self, width, height):
-    pygame.sprite.Sprite.__init__(self)
+    pygame.sprite.DirtySprite.__init__(self)
     self.image = pygame.Surface((width, height))
     self.rect = self.image.get_rect()
     self.radius = height / 2
-    self.tick_length = self.radius * 5 / 24 #25 #H*5/48
-    self.tick_width = 1
-    self.tick_margin =  self.radius * 1 / 24 #5 #H*1/48
-    #self.deg_per_tick = 2
-    self.color = Black
-    self.update(self.color)
+    self.relays = None
+    self.update()
     
   def resize(self, (w, h)):
     self.image = pygame.transform.smoothscale(self.image, (w, h))
     self.rect = self.image.get_rect()
     self.radius = h/2
-    self.tick_length = self.radius * 5 / 24
-    self.tick_margin =  self.radius * 1 / 24
-    self.update(self.color)
+    self.update()
 
-  def update(self, color=None):
-    if color != None: self.color = color
-    center = (x0, y0) = (self.rect.center)
-    #draw circle with diameter of surface height, filled in
-    self.image.fill((0,0,0))
-    pygame.draw.circle(self.image, self.color, center, self.radius, 0)
-    '''#draw tick lines
-    r1 = self.radius - self.tick_margin
-    r0 = r1 - self.tick_length
-    for i in range(30, 330, self.deg_per_tick):
-      p0 = (x0-r0*math.sin(math.radians(i)), y0+r0*math.cos(math.radians(i)))
-      p1 = (x0-r1*math.sin(math.radians(i)), y0+r1*math.cos(math.radians(i)))
-      if machine_type == desktop:
-        pygame.draw.aaline(self.image, Gray, p0, p1, self.tick_width)
-      else: pygame.draw.line(self.image, Gray, p0, p1, self.tick_width)
-    '''
+  def update(self):
+    if self.relays != system[relays]: # changed?
+      self.relays = system[relays]
+      if system[relays] == SYSTEM_OFF:      color = Black
+      if system[relays] == SYSTEM_COOLING:  color = Blue
+      if system[relays] == SYSTEM_HEATING:  color = ORANGE
+      #draw circle with diameter of surface height, filled in
+      pygame.draw.circle(self.image, color, self.rect.center, self.radius, 0)
+      self.dirty = 1
+    
 class Tickmark(pygame.sprite.DirtySprite):
   '''Tickmark sprites are drawn onto dial surface as part of thermostat background
   and become highlighted when their temperature lies between current and target.
   Tickmarks shall not update until after other thermostat sprites are cleared.'''
+  global dial, system
   radius = H / 2 - H*1/48 #TICK_MARGIN
   length = H * 5 / 48
   surface = pygame.Surface([1, length])
-  def __init__(self, surface, rotation):
+  def __init__(self, rotation):
     pygame.sprite.DirtySprite.__init__(self)
     self.color = None
     self.rotation = rotation
@@ -156,13 +154,15 @@ class Tickmark(pygame.sprite.DirtySprite):
       self.rect.bottomleft = p0
     if 270 <= rotation < 360:
       self.rect.topleft = p0
-    self.image = surface.subsurface(self.rect)
+    self.image = dial.image.subsurface(self.rect)
     self.update()
   
   def update(self):
-    global current, target
+    if dial.dirty:
+      for tick in tickmarklist: tick.color = None
     
-    if current < self.temperature < target or target < self.temperature < current:
+    if system[current] < self.temperature < system[target]\
+    or system[target] < self.temperature < system[current]:
       color = White
     else: color = Gray
     
@@ -177,10 +177,13 @@ class Tickmark(pygame.sprite.DirtySprite):
         self.color = color
         self.dirty = 1
 
-class Tick(pygame.sprite.Sprite):
+class Tick(pygame.sprite.DirtySprite):
+  global system
   #Draw a radial tick mark of length and places relative to the center of screen.
-  def __init__(self, length, width, color):
-    pygame.sprite.Sprite.__init__(self)
+  def __init__(self, temperatureIndex, length, width, color):
+    self.temperatureIndex = temperatureIndex # tracks this system temperature
+    self.temperature = None
+    pygame.sprite.DirtySprite.__init__(self)
     #self.image = pygame.Surface([length, length])
     self.surface = pygame.Surface([width, length]).convert_alpha()
     self.surface.fill(color)
@@ -194,64 +197,75 @@ class Tick(pygame.sprite.Sprite):
     self.image = pygame.transform.smoothscale(self.image, (w, h))
     #self.rect = self.image.get_rect() # doesn't matter?
     self.center = (self.x0, self.y0) = (w/2, h/2)
-    self.update(self.temperature)
+    self.update()
 
-  def update(self, temperature):
+  def update(self):
     #rotate tick line sprite
-    if temperature == -999:
-      deg = 00
-    else:
-      deg = heat2degrees(temperature)
-    self.temperature = temperature
-    #round to nearest dial tick mark
-    deg = round(deg/2)*2
-    #print "deg=%d" % deg
-    self.image = pygame.transform.rotate(self.surface, -deg)
-    self.rect = self.image.get_rect()
-    #place tick line sprite on dial
-    #(x0, y0) = (W/2, H/2) # screen center
-    len = self.surface.get_rect().height
-    #print "len=%d" % len
-    p0 = (self.x0-(self.r-len)*math.sin(math.radians(deg))\
-         ,self.y0+(self.r-len)*math.cos(math.radians(deg)))
-    if 0 <= deg < 90:
-      self.rect.topright = p0
-    if 90 <= deg < 180:
-      self.rect.bottomright = p0
-    if 180 <= deg < 270:
-      self.rect.bottomleft = p0
-    if 270 <= deg < 360:
-      self.rect.topleft = p0
+    if self.temperature != system[self.temperatureIndex]:
+      self.temperature = system[self.temperatureIndex]
+      if system[self.temperatureIndex] == -999:
+        deg = 00
+      else:
+        deg = heat2degrees(system[self.temperatureIndex])
+      #round to nearest dial tick mark
+      deg = round(deg/2)*2
+      #print "deg=%d" % deg
+      self.image = pygame.transform.rotate(self.surface, -deg)
+      self.rect = self.image.get_rect()
+      #place tick line sprite on dial
+      #(x0, y0) = (W/2, H/2) # screen center
+      len = self.surface.get_rect().height
+      #print "len=%d" % len
+      p0 = (self.x0-(self.r-len)*math.sin(math.radians(deg))\
+           ,self.y0+(self.r-len)*math.cos(math.radians(deg)))
+      if 0 <= deg < 90:
+        self.rect.topright = p0
+      if 90 <= deg < 180:
+        self.rect.bottomright = p0
+      if 180 <= deg < 270:
+        self.rect.bottomleft = p0
+      if 270 <= deg < 360:
+        self.rect.topleft = p0
+      self.dirty = 1
 
-class Temperature_display(pygame.sprite.Sprite):
+class Temperature_display(pygame.sprite.DirtySprite):
+  global system
   #Display temperature on thermostat dial.  Radius varies from 0 to 120
-  def __init__(self, radius, temperature, format, color):
-    pygame.sprite.Sprite.__init__(self)
-    self.temperature = temperature
+  def __init__(self, radius, temperatureIndex, format, color):
+    pygame.sprite.DirtySprite.__init__(self)
+    self.temperatureIndex = temperatureIndex
+    self.temperature = None
+    self.target = None
     self.format = format
     self.color = color
     self.radius = radius
     self.center = (self.x0, self.y0) = (W/2, H/2)
     self.font = pygame.font.Font(None, H*5/12 - radius * H*3/12/(H/2-H/8))
-    self.update(self.temperature, self.format, self.color)
+    self.update(self.format, self.color)
   
   def resize(self, (w, h)):
     self.radius = self.radius * h/(2*self.y0)
     self.center = (self.x0, self.y0) = (w/2, h/2)
-    self.update(self.temperature, self.format, self.color)
+    self.update(self.format, self.color)
 
-  def update(self, temperature, format='%d', color=(255,255,255)):
-    self.temperature = temperature
-    if temperature == -999: deg = 0
-    else: deg = heat2degrees(temperature)
-    if target <= temperature:
-      adv = 12 # advance or retard depending on system mode
-    else:
-      adv = -12
-    self.image = self.font.render(format%temperature, True, color)
-    x = self.x0 - self.radius * math.sin(math.radians(deg+adv))
-    y = self.y0 + self.radius * math.cos(math.radians(deg+adv))
-    self.rect = self.image.get_rect(center=(x,y))
+  def update(self, format=None, color=None):
+    if self.temperature != system[self.temperatureIndex]\
+    or self.target != system[target]:
+      self.temperature = system[self.temperatureIndex]
+      self.target = system[target]
+      if system[self.temperatureIndex] == -999: deg = 0
+      else: deg = heat2degrees(system[self.temperatureIndex])
+      if system[target] <= system[self.temperatureIndex]:
+        adv = 12 # advance or retard depending on system target
+      else:
+        adv = -12
+      if format == None: format = self.format
+      if color == None: color = self.color
+      self.image = self.font.render(format%system[self.temperatureIndex], True, color)
+      x = self.x0 - self.radius * math.sin(math.radians(deg+adv))
+      y = self.y0 + self.radius * math.cos(math.radians(deg+adv))
+      self.rect = self.image.get_rect(center=(x,y))
+      self.dirty = 1
   #def move(self, scale): #zoom?
 
 class Text_xy(pygame.sprite.Sprite):
@@ -287,37 +301,41 @@ class Humidity_display(pygame.sprite.Sprite):
     self.image = self.font.render('%d'%value+'%RH', True, (r,g,b))
     self.rect = self.image.get_rect(bottomleft=self.xy)
 
-class Heaticon(pygame.sprite.Sprite):
-  global mode
+class Heaticon(pygame.sprite.DirtySprite):
+  global system
   def __init__(self, (w,h), position):
-    pygame.sprite.Sprite.__init__(self)
+    pygame.sprite.DirtySprite.__init__(self)
     self.image = pygame.Surface((w,h))
     self.rect = pygame.Rect(position,(w,h))
     self.position = position
+    self.mode = None
     self.update()
   def update(self):
-    pxarray = pygame.PixelArray(self.image)
-    (a,b) = pxarray.shape
-    #print "a=%d, b=%d" %(a,b)
-    if mode == COOLING:
-      color1, color2, color3 = (Blue, Blue, Blue)
-    elif mode == HEATING:
-      color1, color2, color3 = (ORANGE, ORANGE, ORANGE)
-    elif mode == COMBI:
-      color1, color2, color3 = (ORANGE, White, Blue)
-    else:
-      color1, color2, color3 = (White, White, White)
-    h = self.rect.height
-    lines = [(h/4, color1), (h/2, color2), (h*3/4, color3)]
-    for (line, color) in lines:
-      for x in range(0,a):
-        y = line - int(round(math.sin(2*math.pi*x/a) * b/8))
-        pxarray[x,y]   = color
-        pxarray[x,y-1] = color
-        pxarray[x,y+1] = color
-    self.image = pxarray.make_surface()
-    self.rect = self.image.get_rect()
-    self.rect.topleft = self.position
+    if self.mode != system[mode]:
+      self.mode = system[mode]
+      pxarray = pygame.PixelArray(self.image)
+      (a,b) = pxarray.shape
+      #print "a=%d, b=%d" %(a,b)
+      if system[mode] == COOLING:
+        color1, color2, color3 = (Blue, Blue, Blue)
+      elif system[mode] == HEATING:
+        color1, color2, color3 = (ORANGE, ORANGE, ORANGE)
+      elif system[mode] == COMBI:
+        color1, color2, color3 = (ORANGE, White, Blue)
+      else:
+        color1, color2, color3 = (White, White, White)
+      h = self.rect.height
+      lines = [(h/4, color1), (h/2, color2), (h*3/4, color3)]
+      for (line, color) in lines:
+        for x in range(0,a):
+          y = line - int(round(math.sin(2*math.pi*x/a) * b/8))
+          pxarray[x,y]   = color
+          pxarray[x,y-1] = color
+          pxarray[x,y+1] = color
+      self.image = pxarray.make_surface()
+      self.rect = self.image.get_rect()
+      self.rect.topleft = self.position
+      self.dirty = 1
 
 def landedRedX(position):
   # Red X in top right corner 25x25 pixels
@@ -359,36 +377,16 @@ def deg2heat(deg):
 
 def system_update():
   global system, mode, current, target
-  def repaint():
-    for tick in tickmarklist:
-      tick.color = None
-    tickmarks.update()
-    screen.blit(dial.image, (0,0))
-    pygame.display.flip()
-  
-  if mode == COOLING:
-    if current < (target - 0.5) and system == SYSTEM_COOLING:
-      if system != SYSTEM_OFF:
-        system = SYSTEM_OFF
-        dial.update(Black)
-        repaint()
-    if current >= target and system == SYSTEM_OFF:
-      if system != SYSTEM_COOLING:
-        system = SYSTEM_COOLING
-        dial.update(Blue)
-        repaint()
-  if mode == HEATING:
-    if current > (target - 0.5) and system == SYSTEM_HEATING:
-      if system != SYSTEM_OFF:
-        system = SYSTEM_OFF
-        dial.update(Black)
-        repaint()
-    if current <= target and system == SYSTEM_OFF:
-      if system != SYSTEM_HEATING:
-        system = SYSTEM_HEATING
-        dial.update(ORANGE)
-        repaint()
-
+  if system[mode] == COOLING:
+    if system[current] < (system[target] - 0.5) and system[relays] == SYSTEM_COOLING:
+      system[relays] = SYSTEM_OFF
+    if system[current] >= system[target] and system[relays] == SYSTEM_OFF:
+      system[relays] = SYSTEM_COOLING
+  if system[mode] == HEATING:
+    if system[current] > (system[target] - 0.5) and system[relays] == SYSTEM_HEATING:
+      system[relays] = SYSTEM_OFF
+    if system[current] <= system[target] and system[relays] == SYSTEM_OFF:
+      system[relays] = SYSTEM_HEATING
 
 #Colours
 White = (255, 255, 255)
@@ -412,10 +410,11 @@ TRIGGER_SENSOR = pygame.USEREVENT + 2
 RESIZE_SCREEN = pygame.USEREVENT + 3
 initial_angle = 0
 changing_setpoint = False
-(COOLING, HEATING, COMBI, OFF) = (0, 1, 2, 3)
-mode = HEATING
-SYSTEM_COOLING, SYSTEM_HEATING, SYSTEM_OFF, SYSTEM_FAN = (0, 1, 2, 3)
-system = SYSTEM_OFF
+system[mode] = HEATING
+system[relays] = SYSTEM_OFF
+system[target] = 75
+system[current] = 74
+system[rhum] = 30
 '''
 
   pygame.time.set_timer(POLL_SENSOR, READ_SENSOR_INTERVAL*1000)
@@ -430,8 +429,6 @@ sensor_animate = True
 
 # start rendering
 dial = Dial(W, H)
-dial.update(Black)
-
 
 # Touch red x to quit game
 RedX = font_lil.render("X", False, Red)
@@ -444,14 +441,14 @@ pygame.display.flip()
 modicon = Heaticon((W/8,W/8), (W-W/8, 0))
 
 # initialize sprites
-target_tick = Tick(H*33/240 , 3, White)
-current_tick = Tick(H*5/48, 3, White)
-target_temp = Temperature_display(0, 0, '%d', White)
-current_temp = Temperature_display(H/2-H/12, 78, '%.1f', White)
-humidity = Humidity_display((0,H), 30)
-target_temp.update(75)
-current_temp.update(current)
-humidity.update(10)
+target_tick = Tick(target, H*33/240 , 3, White)
+current_tick = Tick(current, H*5/48, 3, White)
+target_temp = Temperature_display(0, target, '%d', White)
+current_temp = Temperature_display(H/2-H/12, current, '%.1f', White)
+#humidity = Humidity_display((0,H), 30)
+#target_temp.update()
+#current_temp.update()
+#humidity.update(10)
 def deg2heat2(deg):
   temp = float(deg) / deg_degF + 47.5
   #round to nearest 1/4 degreeF
@@ -465,31 +462,27 @@ for temp in (deg2heat2(x) for x in range(30, 330, 2)): # deg/tick == 2
 print sorted(tickmarks.keys()) '''
 tickmarklist = []
 for deg in range(30, 332, 2):
-  tickmarklist.append(Tickmark(dial.image, deg))
+  tickmarklist.append(Tickmark(deg))
 print 'tick rot = %d, w = %d, h= %d' % (tickmarklist[30].rotation, tickmarklist[30].rect.w, tickmarklist[30].rect.h)
 # set up the sprite groups
-tickmarks = pygame.sprite.LayeredDirty()
+'''tickmarks = pygame.sprite.LayeredDirty()
 for i in tickmarklist:
-  tickmarks.add(i)
-screen.blit(dial.image, (0,0))
-pygame.display.flip()
-#tickmarks.clear(screen, dial.image)
-ambient = pygame.sprite.Group(current_temp, current_tick)
-setpoint = pygame.sprite.Group(target_temp, target_tick)
+  tickmarks.add(i)'''
+#ambient = pygame.sprite.Group(current_temp, current_tick)
+#setpoint = pygame.sprite.Group(target_temp, target_tick)
 #spread = SpreadGroup()
 
 ''' IMPORTANT: thermostat is a render group only.  Don't call update method! '''
-thermostat = pygame.sprite.RenderUpdates( ambient.sprites()
-                                        , setpoint.sprites()
-                                        , humidity
-                                        , modicon
-                                        )
+thermostat = pygame.sprite.LayeredDirty( dial, tickmarklist
+                                        , current_temp, current_tick  #ambient.sprites()
+                                        , target_temp, target_tick    #setpoint.sprites(), modicon
+                                        , modicon)
 #spread.update()
 all = ResizableGroup(thermostat.sprites(), dial)
 #thermostat.add(target_tick, current_tick, target_temp, current_temp, humidity)
 
-target_tick.update(target)
-current_tick.update(current)
+target_tick.update()
+current_tick.update()
 rectlist = thermostat.draw(screen)
 pygame.display.update(rectlist)
 
@@ -514,24 +507,24 @@ while running == True:
         print "initial angle=%d" % initial_angle
         pygame.event.set_allowed(pygame.MOUSEMOTION) # needed for desktop
       elif modicon.rect.collidepoint(position):
-        mode = (mode + 1) % 4
-        system = SYSTEM_OFF
-        modicon.update()
-        system_update()
+        system[mode] = (system[mode] + 1) % 4
+        system[relays] = SYSTEM_OFF
+        #modicon.update()
+        #system_update()
 
     if ev.type == pygame.MOUSEMOTION and changing_setpoint:
       ang = angle(pygame.mouse.get_pos())
       dt = deg2heat(ang - initial_angle)
       if abs(dt) >= 0.25:
         initial_angle = ang
-        print "angle=%d, delta heat=%.2f" % (ang, dt)
-        target += dt
+        #print "angle=%d, delta heat=%.2f" % (ang, dt)
+        system[target] += dt
         #round to nearest dial tick mark (1/4 degF)
-        target = round(target*4)/4
-        setpoint.update(target)
-        current_temp.update(current) # advance/retard wrt target
+        system[target] = round(system[target]*4)/4
+        #setpoint.update(target)
+        #current_temp.update(current) # advance/retard wrt target
         #spread.update()
-        system_update()
+        #system_update()
 
     if ev.type == pygame.MOUSEBUTTONUP and changing_setpoint:
       changing_setpoint = False
@@ -549,12 +542,12 @@ while running == True:
     if ev.type == POLL_SENSOR:
       if s.type() == 'DHT11': pygame.time.set_timer(POLL_SENSOR, 0)
       #(current, rhum) = getTemperature(s) # WAIT 200 MSEC!!!!
-      current = s.temperature()
-      rhum = s.humidity()
-      system_update()
-      current = round(current*4)/4 # round temperature up to nearest 0.25F
-      ambient.update(current)
-      humidity.update(rhum)
+      system[current] = s.temperature()
+      system[rhum] = s.humidity()
+      #system_update()
+      system[current] = round(system[current]*4)/4 # round temperature up to nearest 0.25F
+      #ambient.update(current)
+      #humidity.update(rhum)
       #spread.update()
 
     if ev.type == pygame.VIDEORESIZE and machine_type == desktop:
@@ -572,19 +565,17 @@ while running == True:
       all.resize(newsize)
       (W,H) = newsize
       pygame.display.set_caption('Thermostat (%d, %d)'%newsize, 'Tstat')
-      screen.blit(dial.image, (0,0))
-      pygame.display.flip()
+      #screen.blit(dial.image, (0,0))
+      #pygame.display.flip()
 
   # Render screen
-  
-  tickmarks.update()
-  thermostat.clear(screen, dial.image)
-  #tickmarks.clear(screen, dial.image) # no affect
-  #ticks = tickmarks.draw(screen)
-  ticks = []
+  system_update()
+  thermostat.update()
+  thermostat.clear(screen, dial.image) # fixme? place outside of event loop?
   rectlist = thermostat.draw(screen)
-  #print "dirty rectangles = %d + %d" % (len(rectlist), len(ticks))
-  pygame.display.update(ticks + rectlist)
+  if len(rectlist) > 0:
+    print "dirty rectangles = %d" % len(rectlist)
+  pygame.display.update(rectlist)
   
   # Control timing (and generate new events)
   fpsClock.tick(FPS)
