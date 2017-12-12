@@ -229,6 +229,7 @@ class Temperature_display(pygame.sprite.DirtySprite):
     self.temperatureIndex = temperatureIndex
     self.temperature = None
     self.target = None
+    self.adv = 0
     self.format = format
     self.color = color
     self.radius = radius
@@ -248,41 +249,47 @@ class Temperature_display(pygame.sprite.DirtySprite):
       self.target = system[target]
       if system[self.temperatureIndex] == -999: deg = 0
       else: deg = heat2degrees(system[self.temperatureIndex])
-      if system[target] <= system[self.temperatureIndex]:
-        adv = 12 # advance or retard depending on system target
-      else:
-        adv = -12
+      if system[target] < system[self.temperatureIndex]:
+        self.adv = 15 # advance or retard depending on system target
+      elif system[target] > system[self.temperatureIndex]:
+        self.adv = -15
       if format == None: format = self.format
       if color == None: color = self.color
       self.image = self.font.render(format%system[self.temperatureIndex], True, color)
-      x = self.x0 - self.radius * math.sin(math.radians(deg+adv))
-      y = self.y0 + self.radius * math.cos(math.radians(deg+adv))
+      x = self.x0 - self.radius * math.sin(math.radians(deg+self.adv))
+      y = self.y0 + self.radius * math.cos(math.radians(deg+self.adv))
       self.rect = self.image.get_rect(center=(x,y))
       self.dirty = 1
   #def move(self, scale): #zoom?
 
-class Humidity_display(pygame.sprite.Sprite):
+class Humidity_display(pygame.sprite.DirtySprite):
   #Display humidity value with color scaled to value
-  def __init__(self, xy, fontsize):
-    pygame.sprite.Sprite.__init__(self)
+  def __init__(self, sysindex, xy, fontsize):
+    pygame.sprite.DirtySprite.__init__(self)
+    self.sysindex = sysindex
     self.fontsize = fontsize
     self.font = pygame.font.Font(None, fontsize)
     self.xy = xy
+    self.value = None
   def resize(self, (w, h)):
     self.fontsize = int(self.fontsize * h/float(self.xy[1]))
     self.font = pygame.font.Font(None, self.fontsize)
     self.xy = (0, h)
-  def update(self, value):
-    if value < 0 or value > 100:
-      (r,g,b) = (40,40,40)
-    else:
-      # scale blue to cyan
-      r = round(100 * (1- float(value) / 100)**.25)
-      g = round(255 * (1 - float(value) / 100)**0.33)
-      b = 255 #round(255 * float(value) / 100)
-      #print "r=%d, g=%d, b=%d" % (r,g,b)
-    self.image = self.font.render('%d'%value+'%RH', True, (r,g,b))
-    self.rect = self.image.get_rect(bottomleft=self.xy)
+  def update(self):
+    value = system[self.sysindex]
+    if self.value != value: # changed?
+      self.value = value
+      if value < 0 or value > 100:
+        (r,g,b) = (40,40,40)
+      else:
+        # scale blue to cyan
+        r = round(100 * (1- float(value) / 100)**.25)
+        g = round(255 * (1 - float(value) / 100)**0.33)
+        b = 255 #round(255 * float(value) / 100)
+        #print "r=%d, g=%d, b=%d" % (r,g,b)
+      self.image = self.font.render('%d'%value+'%RH', True, (r,g,b))
+      self.rect = self.image.get_rect(bottomleft=self.xy)
+      self.dirty = 1
 
 class Heaticon(pygame.sprite.DirtySprite):
   global system
@@ -347,13 +354,14 @@ def system_update():
   if system[mode] == COOLING:
     if system[current] < (system[target] - 0.5) and system[relays] == SYSTEM_COOLING:
       system[relays] = SYSTEM_OFF
-    if system[current] >= system[target] and system[relays] == SYSTEM_OFF:
+    if system[current] > (system[target] + 0.5) and system[relays] == SYSTEM_OFF:
       system[relays] = SYSTEM_COOLING
   if system[mode] == HEATING:
-    if system[current] > (system[target] - 0.5) and system[relays] == SYSTEM_HEATING:
+    if system[current] > (system[target] + 0.5) and system[relays] == SYSTEM_HEATING:
       system[relays] = SYSTEM_OFF
-    if system[current] <= system[target] and system[relays] == SYSTEM_OFF:
+    if system[current] < (system[target] - 0.5) and system[relays] == SYSTEM_OFF:
       system[relays] = SYSTEM_HEATING
+  if s.type() == 'dummy': s.systemState(system[relays])
 
 #Colours
 White = (255, 255, 255)
@@ -371,16 +379,18 @@ font_tiny = pygame.font.Font(None, 15)
 
 #Logic
 fpsClock = pygame.time.Clock()
-FPS = 10
+FPS = 20
 POLL_SENSOR = pygame.USEREVENT + 1
 TRIGGER_SENSOR = pygame.USEREVENT + 2
 RESIZE_SCREEN = pygame.USEREVENT + 3
 initial_angle = 0
 changing_setpoint = False
 system[mode] = HEATING
+if s.type() == 'dummy': s.systemMode(system[mode])
 system[relays] = SYSTEM_OFF
+if s.type() == 'dummy': s.systemState(system[relays])
 system[target] = 75
-system[current] = 74
+system[current] = 70.25
 system[rhum] = 30
 
 if s.type() == 'DHT11':
@@ -408,7 +418,7 @@ target_tick = Tick(target, H*33/240 , 3, White)
 current_tick = Tick(current, H*5/48, 3, White)
 target_temp = Temperature_display(0, target, '%d', White)
 current_temp = Temperature_display(H/2-H/12, current, '%.1f', White)
-#humidity = Humidity_display((0,H), 30)
+humidity = Humidity_display(rhum, (0,H), 30)
 #humidity.update(10)
 def deg2heat2(deg):
   temp = float(deg) / deg_degF + 47.5
@@ -424,7 +434,7 @@ for deg in range(30, 332, 2):
 thermostat = pygame.sprite.LayeredDirty( dial, tickmarklist
                                         , current_temp, current_tick
                                         , target_temp, target_tick
-                                        , modicon)
+                                        , humidity, modicon)
 
 all = ResizableGroup(thermostat.sprites(), dial)
 
@@ -450,7 +460,8 @@ while running == True:
         pygame.event.set_allowed(pygame.MOUSEMOTION) # needed for desktop
       elif modicon.rect.collidepoint(position):
         system[mode] = (system[mode] + 1) % 4
-        system[relays] = SYSTEM_OFF
+        if s.type() == 'dummy': s.systemMode(system[mode])
+        #system[relays] = SYSTEM_OFF
         #modicon.update()
         #system_update()
 
@@ -513,10 +524,10 @@ while running == True:
   
   # Control timing (and generate new events)
   fpsClock.tick(FPS)
-'''  if s.type() == 'dummy' and sensor_animate:
+  if s.type() == 'dummy' and sensor_animate:
     #print 'post event TRIGGER_SENSOR'
     pygame.event.post(pygame.event.Event(TRIGGER_SENSOR))
-'''
+
 # terminate
 pygame.quit()
 s.cancel()
