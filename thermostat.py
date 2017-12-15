@@ -41,7 +41,7 @@ else: # desktop running in X11 windows
 print "screen size is (%d, %d)" % (W, H)
 screen.fill((0,0,0))
 pygame.display.update()
-
+'''
 # Set up sensor if on RPI, else use dummy if on pc
 s = 0 # sensor instance, eventually
 import pigpio
@@ -62,6 +62,7 @@ except:
   s = Dummy_sensor.Sensor(68, 51)
 
 READ_SENSOR_INTERVAL = 3 # Intervals <=2 seconds will eventually hang the DHT22.
+'''
 '''
 Orientation of thermostat dial:
   The origin of dial is the center of the screen (W/2, H/2).  The bottom of the dial
@@ -84,7 +85,8 @@ deg_intercept = 180 - T180 * deg_degF
 inner_ring = H/2-H/8
 outer_ring = H/2
 core_ring = H/4
-#Thermostat system part
+
+#Thermostat HVAC system part
 target = 'target'
 current = 'current'
 rhum = 'rhum'
@@ -93,6 +95,10 @@ relays = 'relays'
 (COOLING, HEATING, COMBI, OFF) = (0, 1, 2, 3)
 SYSTEM_COOLING, SYSTEM_HEATING, SYSTEM_OFF, SYSTEM_FAN = (0, 1, 2, 3)
 system = {target:None, current:None, mode:None, rhum:None, relays:None}
+from hvac_client import HVAC_Client
+serverhost = 'localhost'
+port = 8999
+hvac = HVAC_Client(serverhost, port)
 
 def heat2degrees (T):
   return deg_degF * T + deg_intercept
@@ -351,6 +357,13 @@ def deg2heat(deg):
 
 def system_update():
   global system, mode, current, target
+  system[mode] = hvac.mode
+  system[current] = hvac.temperature
+  #print system[current]
+  system[target] = hvac.setpoint
+  system[relays] = hvac.relays
+  
+'''
   if system[mode] == COOLING:
     if system[current] < (system[target] - 0.5) and system[relays] == SYSTEM_COOLING:
       system[relays] = SYSTEM_OFF
@@ -362,7 +375,7 @@ def system_update():
     if system[current] < (system[target] - 0.5) and system[relays] == SYSTEM_OFF:
       system[relays] = SYSTEM_HEATING
   if s.type() == 'dummy': s.systemState(system[relays])
-
+'''
 #Colours
 White = (255, 255, 255)
 Gray =  (140, 140, 140, 255)
@@ -385,16 +398,18 @@ TRIGGER_SENSOR = pygame.USEREVENT + 2
 RESIZE_SCREEN = pygame.USEREVENT + 3
 initial_angle = 0
 changing_setpoint = False
-system[mode] = HEATING
-if s.type() == 'dummy': s.systemMode(system[mode])
-system[relays] = SYSTEM_OFF
-if s.type() == 'dummy': s.systemState(system[relays])
-system[target] = 75
-system[current] = 70.25
+hvac.mode = HEATING #system[mode] = HEATING
+
+#if s.type() == 'dummy': s.systemMode(system[mode])
+#system[relays] = SYSTEM_OFF
+#if s.type() == 'dummy': s.systemState(system[relays])
+
+hvac.setpoint = 75 #system[target] = 75
+#system[current] = 70.25
 system[rhum] = 30
 
-if s.type() == 'DHT11':
-  pygame.time.set_timer(TRIGGER_SENSOR, READ_SENSOR_INTERVAL*1000)
+#if s.type() == 'DHT11':
+#  pygame.time.set_timer(TRIGGER_SENSOR, READ_SENSOR_INTERVAL*1000)
 #elif s.type() == 'dummy':
 #  pygame.time.set_timer(TRIGGER_SENSOR, READ_SENSOR_INTERVAL*1000)
 running = True
@@ -460,10 +475,8 @@ while running == True:
         pygame.event.set_allowed(pygame.MOUSEMOTION) # needed for desktop
       elif modicon.rect.collidepoint(position):
         system[mode] = (system[mode] + 1) % 4
-        if s.type() == 'dummy': s.systemMode(system[mode])
-        #system[relays] = SYSTEM_OFF
-        #modicon.update()
-        #system_update()
+        hvac.mode = system[mode]
+        #if s.type() == 'dummy': s.systemMode(system[mode])
 
     if ev.type == pygame.MOUSEMOTION and changing_setpoint:
       ang = angle(pygame.mouse.get_pos())
@@ -474,13 +487,14 @@ while running == True:
         system[target] += dt
         #round to nearest dial tick mark (1/4 degF)
         system[target] = round(system[target]*4)/4
+        hvac.setpoint = system[target]
 
     if ev.type == pygame.MOUSEBUTTONUP and changing_setpoint:
       changing_setpoint = False
       pygame.event.set_blocked(pygame.MOUSEMOTION)
 
     if ev.type == pygame.QUIT: running = False # quit the game
-
+    '''
     if ev.type == TRIGGER_SENSOR:
       s.trigger()
       if s.type() == 'DHT11':
@@ -494,7 +508,7 @@ while running == True:
       system[current] = s.temperature()
       system[rhum] = s.humidity()
       system[current] = round(system[current]*4)/4 # round temperature up to nearest 0.25F
-
+    '''
     if ev.type == pygame.VIDEORESIZE and machine_type == desktop:
       '''
       To ignore stream of events while dragging the mouse, reset a timer to generate
@@ -514,19 +528,20 @@ while running == True:
       #pygame.display.flip()
 
   # Render screen
-  system_update()
-  thermostat.update()
-  thermostat.clear(screen, dial.image) # fixme? place outside of event loop?
-  rectlist = thermostat.draw(screen)
+  hvac.sync()
+  system_update() #update the hvac system
+  thermostat.update() #update sprites in thermostat group
+  thermostat.clear(screen, dial.image) #clears only dirty sprites
+  rectlist = thermostat.draw(screen) #redraws only dirty sprites
   if len(rectlist) > 0:
     print "dirty rectangles = %d" % len(rectlist)
   pygame.display.update(rectlist)
   
   # Control timing (and generate new events)
   fpsClock.tick(FPS)
-  if s.type() == 'dummy' and sensor_animate:
+  #if s.type() == 'dummy' and sensor_animate:
     #print 'post event TRIGGER_SENSOR'
-    pygame.event.post(pygame.event.Event(TRIGGER_SENSOR))
+    #pygame.event.post(pygame.event.Event(TRIGGER_SENSOR))
 
 # terminate
 pygame.quit()

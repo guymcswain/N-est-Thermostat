@@ -1,137 +1,124 @@
 'use strict'
+const assert = require('assert')
 var net = require('net')
 const COOLING=0, HEATING=1, COMBI=2, OFF=3
 const SYSTEM_COOLING=0, SYSTEM_HEATING=1, SYSTEM_OFF=2, SYSTEM_FAN=3
 var state = {'temperature': 66, 'setpoint': 62, 'mode': HEATING, 'relays': SYSTEM_OFF }
-console.log("state =" + JSON.stringify(state))
+//console.log("state =" + JSON.stringify(state))
 
-// Supports multiple client chat application
+//Share state as global variable - currently used by demosensor.
+module.exports = {
+  state,
+  COOLING,
+  HEATING,
+  COMBI,
+  OFF,
+  SYSTEM_HEATING,
+  SYSTEM_COOLING,
+  SYSTEM_OFF,
+  SYSTEM_FAN
+}
 
-// Keep a pool of sockets ready for everyone
-// Avoid dead sockets by responding to the 'end' event
-var sockets = [];
+// Support connections for multiple clients
+var sockets = []; // pool of connected clients
 
 // Create a TCP socket listener
 var s = net.Server(function (socket) {
 
-    // Add the new client socket connection to the array of
-    // sockets
+    // Add the new client socket connection to the array of sockets
     sockets.push(socket);
     
     // Greet new client with hvac state
     console.log('client connected')
     var str = JSON.stringify(state)
     socket.write(str.length + "\n" + str)
-    socket.msg = ''
-    socket.header = ''
     
+    var data = ''
     // Receiving data from client application
     socket.on('data', function (chunk) {
-      console.log('client sent:' + chunk.toString())
-      this.msg += chunk
-      var length
+      console.log(`received:${chunk.toString().replace(/\n/g, '')} from ${socket.localAddress}`)
+      data += chunk
+      //console.log('data='+data)
       
-      //wait for header
-      if (this.header == '') {
-        if (this.msg.indexOf('n') >= 0) {
-          [this.header, this.msg] = this.msg.split('\n')
-          console.log('this.header='+this.header)
-          console.log('this.msg='+this.msg)
-          length = parseInt(this.header, 10)
-          if (this.msg.length >= length) {
-            let msg = this.msg.substr(0, length)
-            this.msg = this.msg.slice(length)
-            console.log('msg='+msg)
-            console.log('this.msg='+this.msg)
-            process_the_message(msg)
-            this.header = '' // reset for next message
-            return
-          }
-          else return // wait for the message
-        }
-        else return // wait for the header
+      while (data.indexOf('\n') > 0) {
+        let [header, ...rest] = data.split('\n')
+        rest = rest.join('\n')
+        let length = parseInt(header, 10) // FIXME use re and handle error case
+        assert(length != NaN && length > 1, 'Failed to parse length!')
+        if (length > rest.length) break // return
+        process_the_message(rest.slice(0, length))
+        data = rest.slice(length)
+        //console.log('remaining data='+data)
       }
-      
-      // else wait for the message
-      console.log('this.msg='+this.msg)
-      length = parseInt(this.header, 10)
-      if (this.msg.length >= length) {
-        let msg = this.msg.substr(0, length-1)
-        this.msg = this.msg.slice(length)
-        process_the_message(msg)
-        this.header = '' // reset for next message
-        return
-      }
-      
-      function process_the_message(message) {
-        //convert json object
-        var obj
-        try {
-          obj = JSON.parse(message)
-          console.log('obj recved=' + JSON.stringify(obj))
-        }
-        catch (e) {
-          console.log(e)
-          throw new Error("could not convert to json object")
-        }
-        
-        //change state and update system
-        for (let key in obj) {
-          if (obj.hasOwnProperty(key)) {
-            state[key] = obj[key]
-            //broadcast({key: state[key]}) //ahhhh, this won't work
-            console.log('key =' + key + ', new value =' + state[key])
-          }
-        }
-        broadcast(obj) // let all clients sync their states
-        console.log('about to update state')
-        system_update()
-      }
-      
+
     });
     
-    // The 'end' event means tcp client has disconnected.
+    // Avoid dead sockets by responding to the 'end' event
     socket.on('end', function () {
         var i = sockets.indexOf(socket);
         sockets.splice(i, 1);
         console.log('client disconnected')
     });
-
+    
+    function process_the_message(message) {
+      //convert json object
+      var obj
+      try {
+        obj = JSON.parse(message)
+        //console.log('obj recved=' + JSON.stringify(obj))
+      }
+      catch (e) {
+        console.log(e)
+        throw new Error("message="+message)
+      }
+      
+      //change state and update system
+      for (let key in obj) {
+        if (obj.hasOwnProperty(key)) {
+          state[key] = obj[key]
+          //broadcast({key: state[key]}) //ahhhh, this won't work
+          //console.log('key =' + key + ', new value =' + state[key])
+        }
+      }
+      broadcast(obj, socket) // let other clients sync their states
+      system_update()
+    }
 
 });
 
 s.listen(8999);
 console.log('System waiting at http://localhost:8999');
 
-function broadcast(obj) {
-  //stringify obj before sending out to all clients
-  var objStr = JSON.stringify(obj)
-  
-  // Broadcast state change to all clients
-  for (var i = 0; i < sockets.length; i++) {
-      // Don't send the data back to the original sender
-      //if (sockets[i] == socket) // don't send the message to yourself
-      //    continue;
-      sockets[i].write(objStr.length + "\n" + objStr);
-      console.log('sent' + objStr.length + "\n" + objStr)
+function broadcast(obj, except) {
+  //stringify obj and prefix with length and newline
+  var message = JSON.stringify(obj)
+  message = message.length + '\n' + message
+  console.log('broadcasting: ' + message.replace('\n', ''))
+  for (let i = 0; i < sockets.length; i++) {
+      if (sockets[i] == except) continue //dont' send to self
+      sockets[i].write(message)
   }
 }
 
 function system_update() {
   //global system, mode, current, target
+  let relays = state.relays
   if (state.mode == COOLING) {
-    if (state.temperature < (state.setpoint - 0.5) && state.relays == SYSTEM_COOLING)
-      state.relays = SYSTEM_OFF
-    if (state.temperature > (state.setpoint + 0.5) && state.relays == SYSTEM_OFF)
-      state.relays = SYSTEM_COOLING
+    if (state.temperature < (state.setpoint - 0.5) && relays == SYSTEM_COOLING)
+      relays = SYSTEM_OFF
+    if (state.temperature > (state.setpoint + 0.5) && relays == SYSTEM_OFF)
+      relays = SYSTEM_COOLING
   }
   if (state.mode == HEATING) {
-    if (state.temperature > (state.setpoint + 0.5) && state.relays == SYSTEM_HEATING)
-      state.relays = SYSTEM_OFF
-    if (state.temperature < (state.setpoint - 0.5) && state.relays == SYSTEM_OFF)
-      state.relays = SYSTEM_HEATING
+    if (state.temperature > (state.setpoint + 0.5) && relays == SYSTEM_HEATING)
+      relays = SYSTEM_OFF
+    if (state.temperature < (state.setpoint - 0.5) && relays == SYSTEM_OFF)
+      relays = SYSTEM_HEATING
   }
-  broadcast({'relays': state.relays}) //update all connected clients
+  if (state.relays != relays) {
+    state.relays = relays
+    broadcast({'relays': state.relays}) //update all connected clients
+  }
   //if (s.type() == 'dummy') s.systemState(state.relays)
 }
 
@@ -157,3 +144,21 @@ except:
 
 READ_SENSOR_INTERVAL = 3 # Intervals <=2 seconds will eventually hang the DHT22.
 */
+
+// Setup demo sensor for now
+var Sensor = require('./demosensor')
+var s = new Sensor(68, 51)
+const READ_SENSOR_INTERVAL = 3
+setInterval(readSensor, READ_SENSOR_INTERVAL*33)
+
+function readSensor() {
+  if (s.triggered) {
+    state.temperature = s.temperature()
+    state.humidity = s.humidity()
+    s.trigger() // start next aquisition
+    s.triggered = false
+    broadcast({'temperature': state.temperature, 'humidity': state.humidity})
+    system_update()
+  }
+  else s.trigger() // start aquisition
+}
