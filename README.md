@@ -4,13 +4,13 @@ A home thermostat application constructed as client-server model and implemented
 This is WIP.  Running the application client and server runs a demo with a subset of features.
 
 Client (thermostat.py) is implemented with Pygame/SDL.  It connects to the thermostat server (hvac-server.js) acquiring the thermostat
-state, handles user inputs from the touch screen and displays a radial thermostat.  Other clients can be connected to the same hvac and
+state, handles user inputs from the touch screen and displays a radial thermostat.  Other clients can connect to the same hvac and
 clients can connect to different hvac servers within the home - ie upstairs and downstairs.  
 
-The thermostat server (hvac-server.js) is implemented in NodeJs using the Pigpio package to control the hvac relays and control a local
+The thermostat server (hvac-server.js) is implemented in NodeJs and uses Pigpio to control the hvac relays and a local
 temperature sensor (DHT11 type).
 
-MIT License
+MIT License, modified
 
 Copyright (c) 2017 Guy McSwain
 
