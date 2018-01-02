@@ -59,6 +59,14 @@ var s = net.Server(function (socket) {
         sockets.splice(i, 1);
         console.log('client disconnected')
     });
+    // Handle errors on sockets
+    socket.on('error', function (e) {
+      console.log(`got error on socket from client at address ${socket.localAddress}`)
+      console.log('error = ' + e.message)
+      if (e.message === 'This socket is closed') {
+        socket.end()
+      }
+    })
     
     function process_the_message(message) {
       //convert json object
@@ -71,17 +79,7 @@ var s = net.Server(function (socket) {
         console.log(e)
         throw new Error("message="+message)
       }
-      
-      //change state and update system
-      for (let key in obj) {
-        if (obj.hasOwnProperty(key)) {
-          state[key] = obj[key]
-          //broadcast({key: state[key]}) //ahhhh, this won't work
-          //console.log('key =' + key + ', new value =' + state[key])
-        }
-      }
-      broadcast(obj, socket) // let other clients sync their states
-      system_update()
+      system_update(obj, socket)
     }
 
 });
@@ -89,37 +87,57 @@ var s = net.Server(function (socket) {
 s.listen(8999);
 console.log('System waiting at http://localhost:8999');
 
-function broadcast(obj, except) {
-  //stringify obj and prefix with length and newline
-  var message = JSON.stringify(obj)
-  message = message.length + '\n' + message
-  console.log('broadcasting: ' + message.replace('\n', ''))
-  for (let i = 0; i < sockets.length; i++) {
-      if (sockets[i] == except) continue //dont' send to self
-      sockets[i].write(message)
-  }
-}
 
-function system_update() {
-  //global system, mode, current, target
+function system_update(changes, socket) {
+  // update state object, compute new relays then broadcast changes
+  let nullObj = {}
+  //changes = changes || nullObj
+  if (Object.keys(changes).length === 0 && changes.constructor === Object)
+    changes = nullObj
+  
+  // FIXME:  Check if keys are writable.
+  for (let key in changes) {
+    if (changes.hasOwnProperty(key)) {
+      state[key] = changes[key]
+      //broadcast({key: state[key]}) //ahhhh, this won't work
+      //console.log('key =' + key + ', new value =' + state[key])
+    }
+  }
+  
   let relays = state.relays
-  if (state.mode == COOLING) {
+  if (state.mode === COOLING) {
     if (state.temperature < (state.setpoint - 0.5) && relays == SYSTEM_COOLING)
       relays = SYSTEM_OFF
     if (state.temperature > (state.setpoint + 0.5) && relays == SYSTEM_OFF)
       relays = SYSTEM_COOLING
   }
-  if (state.mode == HEATING) {
+  if (state.mode === HEATING) {
     if (state.temperature > (state.setpoint + 0.5) && relays == SYSTEM_HEATING)
       relays = SYSTEM_OFF
     if (state.temperature < (state.setpoint - 0.5) && relays == SYSTEM_OFF)
       relays = SYSTEM_HEATING
   }
-  if (state.relays != relays) {
+  if (state.relays !== relays) {
     state.relays = relays
-    broadcast({'relays': state.relays}) //update all connected clients
+    changes.relays = relays
+    //broadcast({'relays': state.relays}) //update all connected clients
   }
   //if (s.type() == 'dummy') s.systemState(state.relays)
+    
+  if (changes !== nullObj) broadcast(changes, socket) // let other clients sync their states
+  return
+  
+  function broadcast(obj, except) {
+    //stringify obj and prefix with length and newline
+    var message = JSON.stringify(obj)
+    message = message.length + '\n' + message
+    console.log('broadcasting: ' + message.replace('\n', ''))
+    for (let i = 0; i < sockets.length; i++) {
+        if (sockets[i] == except) continue //dont' send to self
+        sockets[i].write(message)
+    }
+  }
+
 }
 
 /*
@@ -153,12 +171,33 @@ setInterval(readSensor, READ_SENSOR_INTERVAL*33)
 
 function readSensor() {
   if (s.triggered) {
-    state.temperature = s.temperature()
-    state.humidity = s.humidity()
+    let changes = {}
+    let t = round2QuarterDegree(s.temperature())
+    let h = s.humidity()
     s.trigger() // start next aquisition
     s.triggered = false
-    broadcast({'temperature': state.temperature, 'humidity': state.humidity})
-    system_update()
+    
+    if (state.temperature != t) {
+      //state.temperature = t
+      changes.temperature = t
+    }
+    
+    if (state.humidity != h) {
+      //state.humidity = h
+      changes.humidity = h
+    }
+    
+    system_update(changes, null)
+    //broadcast({'temperature': state.temperature, 'humidity': state.humidity})
   }
   else s.trigger() // start aquisition
+
+  function round2QuarterDegree(t) {
+    // Depending on state.mode, round to nearest quarter degree
+    if (state.mode === COOLING)
+      return Math.ceil(t*4)/4
+    else
+      return Math.floor(t*4)/4
+  }
+  
 }

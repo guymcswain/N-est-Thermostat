@@ -19,7 +19,7 @@ function Sensor(i_temperature, i_humidity) {
   
   this.trigger = function() {
     if (hvac.state.mode == hvac.HEATING)   this.Toutside = 95
-    else if (state.mode == hvac.COOLING) this.Toutside = 50
+    else if (hvac.state.mode == hvac.COOLING) this.Toutside = 50
     else this.Toutside = Math.random() * (50 - 95) + 50
     this.rhum += this.rhumbump
     if (this.rhum >=100) this.rhumbump = -this.rhumbump

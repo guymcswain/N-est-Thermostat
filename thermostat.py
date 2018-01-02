@@ -432,7 +432,8 @@ modicon = Heaticon((W/8,W/8), (W-W/8, 0))
 target_tick = Tick(target, H*33/240 , 3, White)
 current_tick = Tick(current, H*5/48, 3, White)
 target_temp = Temperature_display(0, target, '%d', White)
-current_temp = Temperature_display(H/2-H/12, current, '%.1f', White)
+#current_temp = Temperature_display(H/2-H/12, current, '%.1f', White)
+current_temp = Temperature_display(H/2-H/12, current, '%d', White)
 humidity = Humidity_display(rhum, (0,H), 30)
 #humidity.update(10)
 def deg2heat2(deg):
@@ -533,8 +534,8 @@ while running == True:
   thermostat.update() #update sprites in thermostat group
   thermostat.clear(screen, dial.image) #clears only dirty sprites
   rectlist = thermostat.draw(screen) #redraws only dirty sprites
-  if len(rectlist) > 0:
-    print "dirty rectangles = %d" % len(rectlist)
+  #if len(rectlist) > 0:
+  #  print "dirty rectangles = %d" % len(rectlist)
   pygame.display.update(rectlist)
   
   # Control timing (and generate new events)
@@ -545,7 +546,7 @@ while running == True:
 
 # terminate
 pygame.quit()
-s.cancel()
+#s.cancel()
 try:
   pi
   pi.stop()
