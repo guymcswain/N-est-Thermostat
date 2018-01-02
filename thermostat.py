@@ -95,10 +95,22 @@ relays = 'relays'
 (COOLING, HEATING, COMBI, OFF) = (0, 1, 2, 3)
 SYSTEM_COOLING, SYSTEM_HEATING, SYSTEM_OFF, SYSTEM_FAN = (0, 1, 2, 3)
 system = {target:None, current:None, mode:None, rhum:None, relays:None}
+
+def system_update():
+  global system, mode, current, target
+  # Update system dict with hvac object
+  system[mode] = hvac.mode
+  system[current] = hvac.temperature
+  system[rhum] = hvac.relative_humidity
+  #print system[current]
+  system[target] = hvac.setpoint
+  system[relays] = hvac.relays
+
 from hvac_client import HVAC_Client
 serverhost = 'localhost'
 port = 8999
 hvac = HVAC_Client(serverhost, port)
+system_update() # update system dict with hvac object
 
 def heat2degrees (T):
   return deg_degF * T + deg_intercept
@@ -355,14 +367,6 @@ def angle((x,y)):
 def deg2heat(deg):
   return deg / deg_degF
 
-def system_update():
-  global system, mode, current, target
-  system[mode] = hvac.mode
-  system[current] = hvac.temperature
-  #print system[current]
-  system[target] = hvac.setpoint
-  system[relays] = hvac.relays
-  
 '''
   if system[mode] == COOLING:
     if system[current] < (system[target] - 0.5) and system[relays] == SYSTEM_COOLING:
@@ -398,15 +402,15 @@ TRIGGER_SENSOR = pygame.USEREVENT + 2
 RESIZE_SCREEN = pygame.USEREVENT + 3
 initial_angle = 0
 changing_setpoint = False
-hvac.mode = HEATING #system[mode] = HEATING
+#hvac.mode = HEATING #system[mode] = HEATING
 
 #if s.type() == 'dummy': s.systemMode(system[mode])
 #system[relays] = SYSTEM_OFF
 #if s.type() == 'dummy': s.systemState(system[relays])
 
-hvac.setpoint = 75 #system[target] = 75
+#hvac.setpoint = 75 #system[target] = 75
 #system[current] = 70.25
-system[rhum] = 30
+#hvac.humidity = 30 #system[rhum] = 30
 
 #if s.type() == 'DHT11':
 #  pygame.time.set_timer(TRIGGER_SENSOR, READ_SENSOR_INTERVAL*1000)

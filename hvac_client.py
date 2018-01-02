@@ -37,7 +37,7 @@ class HVAC_Client(object):
   @property
   def temperature(self): return self._state['temperature']
   @property
-  def relative_humidity(self): return self._state.relative_humidity
+  def relative_humidity(self): return self._state['humidity']
   
   @property
   def mode(self): return self._state['mode']

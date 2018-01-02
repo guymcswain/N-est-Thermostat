@@ -3,7 +3,17 @@ const assert = require('assert')
 var net = require('net')
 const COOLING=0, HEATING=1, COMBI=2, OFF=3
 const SYSTEM_COOLING=0, SYSTEM_HEATING=1, SYSTEM_OFF=2, SYSTEM_FAN=3
-var state = {'temperature': 66, 'setpoint': 62, 'mode': HEATING, 'relays': SYSTEM_OFF }
+var state = { 'temperature': 66
+            , 'humidity': 50
+            , 'setpoint': 68
+            , 'mode': HEATING
+            , 'relays': SYSTEM_OFF
+            , 'settings': { 'deadband': 4.0
+                          , 'hysteresis': 1.0
+                          , 'maxTemp': 85
+                          , 'minTemp': 55
+                          }
+            }
 //console.log("state =" + JSON.stringify(state))
 
 //Share state as global variable - currently used by demosensor.
@@ -103,18 +113,18 @@ function system_update(changes, socket) {
       //console.log('key =' + key + ', new value =' + state[key])
     }
   }
-  
+  let hys = state.settings.hysteresis
   let relays = state.relays
   if (state.mode === COOLING) {
-    if (state.temperature < (state.setpoint - 0.5) && relays == SYSTEM_COOLING)
+    if (state.temperature <= (state.setpoint - hys/2) && relays == SYSTEM_COOLING)
       relays = SYSTEM_OFF
-    if (state.temperature > (state.setpoint + 0.5) && relays == SYSTEM_OFF)
+    if (state.temperature >= (state.setpoint + hys/2) && relays == SYSTEM_OFF)
       relays = SYSTEM_COOLING
   }
   if (state.mode === HEATING) {
-    if (state.temperature > (state.setpoint + 0.5) && relays == SYSTEM_HEATING)
+    if (state.temperature >= (state.setpoint + hys/2) && relays == SYSTEM_HEATING)
       relays = SYSTEM_OFF
-    if (state.temperature < (state.setpoint - 0.5) && relays == SYSTEM_OFF)
+    if (state.temperature <= (state.setpoint - hys/2) && relays == SYSTEM_OFF)
       relays = SYSTEM_HEATING
   }
   if (state.relays !== relays) {
