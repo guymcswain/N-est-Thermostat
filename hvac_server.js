@@ -117,8 +117,6 @@ function system_update(changes, socket) {
   }
   
   // determine hvac mode
-  /* FIXME: hvac_client must support conversion from setpoint to setPointHigh
-     and setPointLow.  Ie, setter() uses state.autoMode */
   let mode = state.mode
   let sp = state.setpoint
   let db = state.settings.deadband
@@ -128,10 +126,33 @@ function system_update(changes, socket) {
       mode = HEATING
       sp = state.setPointLow
     }
-    else (state.temperature < (state.setPointHigh - db/2 + hys) {
+    else if (state.temperature < (state.setPointHigh - db/2 + hys)) {
       mode = COOLING
       sp = state.setPointHigh
     }
+  }
+  
+  // compute new relays
+  let relays = state.relays
+  if (mode === COOLING) {
+    sp = state.setPointHigh
+    if (state.temperature <= (sp - hys/2) && relays == SYSTEM_COOLING)
+      relays = SYSTEM_OFF
+    if (state.temperature >= (sp  + hys/2) && relays == SYSTEM_OFF)
+      relays = SYSTEM_COOLING
+  }
+  if (mode === HEATING) {
+    sp = state.setPointLow
+    if (state.temperature >= (sp + hys/2) && relays == SYSTEM_HEATING)
+      relays = SYSTEM_OFF
+    if (state.temperature <= (sp - hys/2) && relays == SYSTEM_OFF)
+      relays = SYSTEM_HEATING
+  }
+
+  // collect all changes and broadcast to all clients
+  if (state.relays !== relays) {
+    state.relays = relays
+    changes.relays = relays
   }
   if (state.autoMode !== mode) {
     state.autoMode = mode
@@ -141,30 +162,6 @@ function system_update(changes, socket) {
     state.setpoint = sp
     changes.setpoint = sp
   }
-  
-  // compute new relays
-  let relays = state.relays
- 
-  if (mode === COOLING) {
-    if (state.temperature <= (state.setpoint - hys/2) && relays == SYSTEM_COOLING)
-      relays = SYSTEM_OFF
-    if (state.temperature >= (state.setpoint + hys/2) && relays == SYSTEM_OFF)
-      relays = SYSTEM_COOLING
-  }
-  if (mode === HEATING) {
-    if (state.temperature >= (state.setpoint + hys/2) && relays == SYSTEM_HEATING)
-      relays = SYSTEM_OFF
-    if (state.temperature <= (state.setpoint - hys/2) && relays == SYSTEM_OFF)
-      relays = SYSTEM_HEATING
-  }
-  if (state.relays !== relays) {
-    state.relays = relays
-    changes.relays = relays
-    //broadcast({'relays': state.relays}) //update all connected clients
-  }
-    //if (s.type() == 'dummy') s.systemState(state.relays)
-  
-  //  broadcast changes to all clients
   if (changes !== nullObj) broadcast(changes, socket) // let other clients sync their states
   return
   
