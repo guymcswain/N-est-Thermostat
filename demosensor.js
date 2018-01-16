@@ -12,20 +12,21 @@ function Sensor(i_temperature, i_humidity) {
   this.temp = i_temperature
   this.rhum = i_humidity
   this.bump = 0.25
-  this.rhumbump = 0.01
+  this.rhumbump = 0.00
   
   /* init system simulation */
   // use the global var 'state'
   
   this.trigger = function() {
-    if (hvac.state.autoMode === hvac.HEATING)   this.Toutside = 95
-    else if (hvac.state.autoMode === hvac.COOLING) this.Toutside = 50
+    if (hvac.state.mode === hvac.HEATING)   this.Toutside = 50
+    else if (hvac.state.mode === hvac.COOLING) this.Toutside = 95
+    else if (hvac.state.mode === hvac.COMBI) this.Toutside = 95
     else this.Toutside = Math.random() * (50 - 95) + 50
     this.rhum += this.rhumbump
     if (this.rhum >=100) this.rhumbump = -this.rhumbump
     if (this.rhum <=0) this.rhumbump = -this.rhumbump
     
-    this.Tloss = Kloss * (this.Toutside - this.temp)
+    this.Tloss = Kloss * (this.temp - this.Toutside)
     if (hvac.state.relays === hvac.SYSTEM_COOLING)
       this.Tgain = Kgain * (Tcoldair - this.temp)
     if (hvac.state.relays === hvac.SYSTEM_OFF)

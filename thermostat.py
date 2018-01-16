@@ -92,6 +92,7 @@ current = 'current'
 rhum = 'rhum'
 mode = 'mode'
 relays = 'relays'
+auto = 'auto'
 (COOLING, HEATING, COMBI, OFF) = (0, 1, 2, 3)
 SYSTEM_COOLING, SYSTEM_HEATING, SYSTEM_OFF, SYSTEM_FAN = (0, 1, 2, 3)
 system = {target:None, current:None, mode:None, rhum:None, relays:None}
@@ -105,6 +106,7 @@ def system_update():
   #print system[current]
   system[target] = hvac.setpoint
   system[relays] = hvac.relays
+  system[auto] = hvac.autoMode
 
 from hvac_client import HVAC_Client
 serverhost = 'localhost'
@@ -246,7 +248,6 @@ class Temperature_display(pygame.sprite.DirtySprite):
     pygame.sprite.DirtySprite.__init__(self)
     self.temperatureIndex = temperatureIndex
     self.temperature = None
-    self.target = None
     self.adv = 0
     self.format = format
     self.color = color
@@ -261,23 +262,33 @@ class Temperature_display(pygame.sprite.DirtySprite):
     self.update(self.format, self.color)
 
   def update(self, format=None, color=None):
-    if self.temperature != system[self.temperatureIndex]\
-    or self.target != system[target]:
-      self.temperature = system[self.temperatureIndex]
-      self.target = system[target]
-      if system[self.temperatureIndex] == -999: deg = 0
-      else: deg = heat2degrees(system[self.temperatureIndex])
-      if system[target] < system[self.temperatureIndex]:
-        self.adv = 15 # advance or retard depending on system target
-      elif system[target] > system[self.temperatureIndex]:
-        self.adv = -15
+    if system[mode] != OFF or self.temperatureIndex == current:
+      
+      if self.temperature != system[self.temperatureIndex]:
+
+        self.temperature = system[self.temperatureIndex]
+        if system[self.temperatureIndex] == -999: deg = 0
+        else: deg = heat2degrees(system[self.temperatureIndex])
+        if system[target] < system[self.temperatureIndex]:
+          self.adv = 15 # advance or retard depending on system target
+        elif system[target] > system[self.temperatureIndex]:
+          self.adv = -15
+        if format == None: format = self.format
+        if color == None: color = self.color
+        x = self.x0 - self.radius * math.sin(math.radians(deg+self.adv))
+        y = self.y0 + self.radius * math.cos(math.radians(deg+self.adv))
+        self.image = self.font.render(format%system[self.temperatureIndex], True, color)
+        self.rect = self.image.get_rect(center=(x,y))
+        self.dirty = 1
+    else:
+      x = self.x0 - self.radius * math.sin(math.radians(0))
+      y = self.y0 + self.radius * math.cos(math.radians(0))
       if format == None: format = self.format
       if color == None: color = self.color
-      self.image = self.font.render(format%system[self.temperatureIndex], True, color)
-      x = self.x0 - self.radius * math.sin(math.radians(deg+self.adv))
-      y = self.y0 + self.radius * math.cos(math.radians(deg+self.adv))
+      self.image = font_lil.render("--", True, color)
       self.rect = self.image.get_rect(center=(x,y))
       self.dirty = 1
+      self.temperature = -99 # force update when mode switches on
   #def move(self, scale): #zoom?
 
 class Humidity_display(pygame.sprite.DirtySprite):
@@ -307,6 +318,28 @@ class Humidity_display(pygame.sprite.DirtySprite):
         #print "r=%d, g=%d, b=%d" % (r,g,b)
       self.image = self.font.render('%d'%value+'%RH', True, (r,g,b))
       self.rect = self.image.get_rect(bottomleft=self.xy)
+      self.dirty = 1
+
+class AutoMode_display(pygame.sprite.DirtySprite):
+  #Display autoMode 
+  def __init__(self, sysindex, xy, fontsize):
+    pygame.sprite.DirtySprite.__init__(self)
+    self.sysindex = sysindex
+    self.fontsize = fontsize
+    self.font = pygame.font.Font(None, fontsize)
+    self.xy = xy
+    self.value = None
+  def resize(self, (w, h)):
+    self.fontsize = int(self.fontsize * h/float(self.xy[1]))
+    self.font = pygame.font.Font(None, self.fontsize)
+    self.xy = (0, h)
+  def update(self):
+    value = system[self.sysindex]
+    if self.value != value: # changed?
+      self.value = value
+      text = "Cooling" if value==0 else "Heating" if value==1 else "System Off" if value==3 else "?"
+      self.image = self.font.render(text, True, White)
+      self.rect = self.image.get_rect(center=self.xy)
       self.dirty = 1
 
 class Heaticon(pygame.sprite.DirtySprite):
@@ -427,7 +460,7 @@ target_temp = Temperature_display(0, target, '%d', White)
 #current_temp = Temperature_display(H/2-H/12, current, '%.1f', White)
 current_temp = Temperature_display(H/2-H/12, current, '%d', White)
 humidity = Humidity_display(rhum, (0,H), 30)
-#humidity.update(10)
+autoMode = AutoMode_display(auto, (W/2,3*H/4), 25)
 def deg2heat2(deg):
   temp = float(deg) / deg_degF + 47.5
   #round to nearest 1/4 degreeF
@@ -442,7 +475,7 @@ for deg in range(30, 332, 2):
 thermostat = pygame.sprite.LayeredDirty( dial, tickmarklist
                                         , current_temp, current_tick
                                         , target_temp, target_tick
-                                        , humidity, modicon)
+                                        , humidity, modicon, autoMode)
 
 all = ResizableGroup(thermostat.sprites(), dial)
 

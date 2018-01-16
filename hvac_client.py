@@ -64,6 +64,8 @@ class HVAC_Client(object):
     # what about timer delay?
     else return 'unknown'
   '''
+  @property
+  def autoMode(self): return self._state['autoMode']
   
   @property
   def fan_state(self): return _state.fan_relay
