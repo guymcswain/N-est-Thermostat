@@ -161,9 +161,9 @@ class Tickmark(pygame.sprite.DirtySprite):
          ,H/2 + (Tickmark.radius-Tickmark.length)*math.cos(math.radians(rotation)))
     if 0 <= rotation < 90:
       self.rect.topright = p0
-    if 90 <= rotation < 180:
+    if 90 <= rotation <= 180:
       self.rect.bottomright = p0
-    if 180 <= rotation < 270:
+    if 180 < rotation < 270:
       self.rect.bottomleft = p0
     if 270 <= rotation < 360:
       self.rect.topleft = p0
@@ -178,8 +178,8 @@ class Tickmark(pygame.sprite.DirtySprite):
     or system[target] < self.temperature < system[current]:
       color = White
     else: color = Gray
-    
-    if 90 <= self. rotation < 180 or 270 <= self.rotation < 360:
+    if system[mode] == OFF: color = Gray
+    if 90 <= self.rotation < 180 or 270 <= self.rotation < 360:
       if self.color != color:
         pygame.draw.line(self.image, color, (0,0), (self.rect.w-1,self.rect.h-1))
         self.color = color
@@ -213,6 +213,11 @@ class Tick(pygame.sprite.DirtySprite):
     self.update()
 
   def update(self):
+    if system[mode] == OFF and self.temperatureIndex == target:
+      self.visible = 0
+      self.dirty = 1
+      return
+    self.visible = 1
     #rotate tick line sprite
     if self.temperature != system[self.temperatureIndex]:
       self.temperature = system[self.temperatureIndex]
@@ -262,33 +267,39 @@ class Temperature_display(pygame.sprite.DirtySprite):
     self.update(self.format, self.color)
 
   def update(self, format=None, color=None):
-    if system[mode] != OFF or self.temperatureIndex == current:
-      
-      if self.temperature != system[self.temperatureIndex]:
+    #if system[mode] != OFF or self.temperatureIndex == current:
+    if system[mode] == OFF and self.temperatureIndex == target:
+      self.visible = 0
+      self.dirty = 1
+      return
+    self.visible = 1  
+    if self.temperature != system[self.temperatureIndex]:
 
-        self.temperature = system[self.temperatureIndex]
-        if system[self.temperatureIndex] == -999: deg = 0
-        else: deg = heat2degrees(system[self.temperatureIndex])
-        if system[target] < system[self.temperatureIndex]:
-          self.adv = 15 # advance or retard depending on system target
-        elif system[target] > system[self.temperatureIndex]:
-          self.adv = -15
-        if format == None: format = self.format
-        if color == None: color = self.color
-        x = self.x0 - self.radius * math.sin(math.radians(deg+self.adv))
-        y = self.y0 + self.radius * math.cos(math.radians(deg+self.adv))
-        self.image = self.font.render(format%system[self.temperatureIndex], True, color)
-        self.rect = self.image.get_rect(center=(x,y))
-        self.dirty = 1
+      self.temperature = system[self.temperatureIndex]
+      if system[self.temperatureIndex] == -999: deg = 0
+      else: deg = heat2degrees(system[self.temperatureIndex])
+      if system[target] < system[self.temperatureIndex]:
+        self.adv = 15 # advance or retard depending on system target
+      elif system[target] > system[self.temperatureIndex]:
+        self.adv = -15
+      if format == None: format = self.format
+      if color == None: color = self.color
+      x = self.x0 - self.radius * math.sin(math.radians(deg+self.adv))
+      y = self.y0 + self.radius * math.cos(math.radians(deg+self.adv))
+      self.image = self.font.render(format%system[self.temperatureIndex], True, color)
+      self.rect = self.image.get_rect(center=(x,y))
+      self.dirty = 1
+    '''
     else:
       x = self.x0 - self.radius * math.sin(math.radians(0))
       y = self.y0 + self.radius * math.cos(math.radians(0))
       if format == None: format = self.format
       if color == None: color = self.color
-      self.image = font_lil.render("--", True, color)
+      self.image = font_lil.render("", True, color)
       self.rect = self.image.get_rect(center=(x,y))
       self.dirty = 1
       self.temperature = -99 # force update when mode switches on
+    '''
   #def move(self, scale): #zoom?
 
 class Humidity_display(pygame.sprite.DirtySprite):
@@ -478,7 +489,7 @@ thermostat = pygame.sprite.LayeredDirty( dial, tickmarklist
                                         , humidity, modicon, autoMode)
 
 all = ResizableGroup(thermostat.sprites(), dial)
-xcount = 0
+xcount = 4
 pygame.event.set_blocked(pygame.MOUSEMOTION)
 while running == True:
   # Process events
