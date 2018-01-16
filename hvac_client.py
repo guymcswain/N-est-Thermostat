@@ -11,7 +11,7 @@ readable, client.recv returns an empty json object.
 SYSTEM_COOLING, SYSTEM_HEATING, SYSTEM_OFF, SYSTEM_FAN = (0, 1, 2, 3)
 
 class HVAC_Client(object):
-  keys = ('setpoint', 'temperature', 'mode', 'relays', 'autoMode', 'setPointHigh', 'setPointLow')
+  keys = ('setpoint', 'temperature', 'mode', 'relays', 'autoMode')
   
   #opens socket to hvac server and initialize state
   def __init__(self, host, port):
@@ -34,13 +34,16 @@ class HVAC_Client(object):
   def setpoint(self): return self._state['setpoint']
   @setpoint.setter
   def setpoint(self, value):
+    self._state['setpoint'] = value
+    self.client.send({'setpoint': value}) #update server state
+    '''
     if self._state.autoMode == COOLING:
       self._state['setPointHigh'] = value
       self.client.send({'setPointHigh': value}) #update server state
     if self._state.autoMode == HEATING:
       self._state['setPointLow'] = value
       self.client.send({'setPointLow': value}) #update server state
-  
+    '''
   @property
   def temperature(self): return self._state['temperature']
   @property
