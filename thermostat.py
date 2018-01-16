@@ -478,7 +478,7 @@ thermostat = pygame.sprite.LayeredDirty( dial, tickmarklist
                                         , humidity, modicon, autoMode)
 
 all = ResizableGroup(thermostat.sprites(), dial)
-
+xcount = 0
 pygame.event.set_blocked(pygame.MOUSEMOTION)
 while running == True:
   # Process events
@@ -486,7 +486,12 @@ while running == True:
   for ev in pygame.event.get():
   #ev = pygame.event.wait()
     if ev.type == pygame.MOUSEBUTTONDOWN and landedRedX(pygame.mouse.get_pos()):
-      running = False # quit the game
+      #running = False # quit the game
+      if xcount == 4:
+        running = False
+      else:
+        xcount += 1
+        pygame.image.save(screen, "screenshot"+str(xcount)+".jpg")
 
     if ev.type == pygame.MOUSEBUTTONDOWN:
       position = pygame.mouse.get_pos()
@@ -562,7 +567,9 @@ while running == True:
   #if len(rectlist) > 0:
   #  print "dirty rectangles = %d" % len(rectlist)
   pygame.display.update(rectlist)
-  
+  #Fixme: make this a seperate sprite?
+  screen.blit(RedX, rectRedX)
+  pygame.display.flip()
   # Control timing (and generate new events)
   fpsClock.tick(FPS)
   #if s.type() == 'dummy' and sensor_animate:
