@@ -9,6 +9,7 @@ var state = { 'temperature': 66
             , 'setPointLow': 68
             , 'setPointHigh': 75
             , 'mode': HEATING
+            , 'autoMode': HEATING
             , 'relays': SYSTEM_OFF
             , 'settings': { 'deadband': 4.0
                           , 'hysteresis': 1.0
@@ -91,7 +92,8 @@ var s = net.Server(function (socket) {
         console.log(e)
         throw new Error("message="+message)
       }
-      system_update(obj, socket)
+      //system_update(obj, socket) Note: must broadcast secondary changes!
+      system_update(obj, null)
     }
 
 });
@@ -101,69 +103,94 @@ console.log('System waiting at http://localhost:8999');
 
 
 function system_update(changes, socket) {
-  // update state object
+  
   let nullObj = {}
   //changes = changes || nullObj
   if (Object.keys(changes).length === 0 && changes.constructor === Object)
     changes = nullObj
   
-  // FIXME:  Check if keys are writable.
-  for (let key in changes) {
-    if (changes.hasOwnProperty(key)) {
-      state[key] = changes[key]
-      //broadcast({key: state[key]}) //ahhhh, this won't work
-      //console.log('key =' + key + ', new value =' + state[key])
-    }
-  }
-  
-  // determine hvac mode
-  /* FIXME: hvac_client must support conversion from setpoint to setPointHigh
-     and setPointLow.  Ie, setter() uses state.autoMode */
-  let mode = state.mode
-  let sp = state.setpoint
-  let db = state.settings.deadband
-  let hys = state.settings.hysteresis
-  if (mode === COMBI) {
-    if (state.temperature < (state.setPointLow + db/2 - hys)) {
-      mode = HEATING
-      sp = state.setPointLow
-    }
-    else (state.temperature < (state.setPointHigh - db/2 + hys) {
-      mode = COOLING
-      sp = state.setPointHigh
-    }
-  }
-  if (state.autoMode !== mode) {
-    state.autoMode = mode
-    changes.autoMode = mode
-  }
-  if (state.setpoint !== sp) {
-    state.setpoint = sp
-    changes.setpoint = sp
-  }
-  
-  // compute new relays
+  //let mode = changes.mode || state.mode // fix!!! mode === 0 fails
+  let mode = (changes.mode !== undefined)? changes.mode : state.mode
+  let sp = (changes.setpoint !== undefined)? changes.setpoint : state.setpoint
+  let temp = (changes.temperature !== undefined)? changes.temperature : state.temperature
   let relays = state.relays
- 
-  if (mode === COOLING) {
-    if (state.temperature <= (state.setpoint - hys/2) && relays == SYSTEM_COOLING)
+  let auto = state.autoMode
+  let deadband = state.settings.deadband
+  let hysteresis = state.settings.hysteresis
+
+  // Mode changes: update the setpoint and auto mode
+  if (changes.mode !== undefined) {
+    if (mode === HEATING) {
+      sp = state.setPointLow
+      auto = HEATING
+      if (relays === SYSTEM_COOLING)
+        relays = SYSTEM_OFF
+    }
+    if (mode === COOLING) {
+      sp = state.setPointHigh
+      auto = COOLING
+      if (relays !== SYSTEM_HEATING)
+        relays = SYSTEM_OFF
+    }
+    if (mode === OFF) {
+      // FIXME:  In off mode, thermostat should not display setpoint.  (Current temp ok)
+      auto = OFF
       relays = SYSTEM_OFF
-    if (state.temperature >= (state.setpoint + hys/2) && relays == SYSTEM_OFF)
-      relays = SYSTEM_COOLING
+    }
   }
-  if (mode === HEATING) {
-    if (state.temperature >= (state.setpoint + hys/2) && relays == SYSTEM_HEATING)
-      relays = SYSTEM_OFF
-    if (state.temperature <= (state.setpoint - hys/2) && relays == SYSTEM_OFF)
-      relays = SYSTEM_HEATING
-  }
-  if (state.relays !== relays) {
-    state.relays = relays
-    changes.relays = relays
-    //broadcast({'relays': state.relays}) //update all connected clients
-  }
-    //if (s.type() == 'dummy') s.systemState(state.relays)
   
+  // Setpoint changes: FIXME - broadcast Hi, Lo setpoints?
+  if (changes.setpoint !== undefined) {
+    if (auto === HEATING) {
+      state.setPointLow = sp
+    }
+    if (auto === COOLING) {
+      state.setPointHigh = sp
+    }
+  }
+  
+  // In auto mode, do auto change-over
+  if (mode === COMBI) {
+    if (auto === COOLING)
+      if (temp < (state.setPointLow + deadband/2 - hysteresis)) {
+        auto = HEATING
+        sp = state.setPointLow
+      }
+    if (auto === HEATING)
+      if (temp > (state.setPointHigh - deadband/2 + hysteresis)) {
+        auto = COOLING
+        sp = state.setPointHigh
+      }
+  }
+
+  // compute new relays based on setpoint or temperature change
+  if (auto === COOLING) {
+    if (temp <= (sp - hysteresis/2) && relays == SYSTEM_COOLING)
+      relays = SYSTEM_OFF
+    if (temp >= (sp + hysteresis/2) && relays == SYSTEM_OFF)
+      relays = SYSTEM_COOLING
+    if (relays === SYSTEM_HEATING) throw new Error("Bad hvac state!")
+  }
+  if (auto === HEATING) {
+    if (temp >= (sp + hysteresis/2) && relays == SYSTEM_HEATING)
+      relays = SYSTEM_OFF
+    if (temp <= (sp - hysteresis/2) && relays == SYSTEM_OFF)
+      relays = SYSTEM_HEATING
+    if (relays === SYSTEM_COOLING) throw new Error("Bad hvac state!")
+  }
+  if (auto === OFF) relays = SYSTEM_OFF
+  
+  // update state and changes
+  let next = { mode: mode, setpoint: sp, temperature: temp
+             , humidity: changes.humidity || state.humidity
+             , autoMode: auto, relays: relays}
+  for (let key in next) {
+    if (state[key] !== next[key]) {
+      state[key] = next[key]
+      changes[key] = next[key]
+    }
+  }
+
   //  broadcast changes to all clients
   if (changes !== nullObj) broadcast(changes, socket) // let other clients sync their states
   return
@@ -172,9 +199,13 @@ function system_update(changes, socket) {
     //stringify obj and prefix with length and newline
     var message = JSON.stringify(obj)
     message = message.length + '\n' + message
-    console.log('broadcasting: ' + message.replace('\n', ''))
+    
     for (let i = 0; i < sockets.length; i++) {
-        if (sockets[i] == except) continue //dont' send to self
+        if (sockets[i] === except) {
+          console.log(message.replace('\n', '')) // fixme: remove after debug
+          continue //dont' send to self
+        }
+        console.log('broadcasting: ' + message.replace('\n', ''))
         sockets[i].write(message)
     }
   }
@@ -218,12 +249,12 @@ function readSensor() {
     s.trigger() // start next aquisition
     s.triggered = false
     
-    if (state.temperature != t) {
+    if (state.temperature !== t) {
       //state.temperature = t
       changes.temperature = t
     }
     
-    if (state.humidity != h) {
+    if (state.humidity !== h) {
       //state.humidity = h
       changes.humidity = h
     }

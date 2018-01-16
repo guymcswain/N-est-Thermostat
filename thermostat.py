@@ -367,19 +367,7 @@ def angle((x,y)):
 def deg2heat(deg):
   return deg / deg_degF
 
-'''
-  if system[mode] == COOLING:
-    if system[current] < (system[target] - 0.5) and system[relays] == SYSTEM_COOLING:
-      system[relays] = SYSTEM_OFF
-    if system[current] > (system[target] + 0.5) and system[relays] == SYSTEM_OFF:
-      system[relays] = SYSTEM_COOLING
-  if system[mode] == HEATING:
-    if system[current] > (system[target] + 0.5) and system[relays] == SYSTEM_HEATING:
-      system[relays] = SYSTEM_OFF
-    if system[current] < (system[target] - 0.5) and system[relays] == SYSTEM_OFF:
-      system[relays] = SYSTEM_HEATING
-  if s.type() == 'dummy': s.systemState(system[relays])
-'''
+
 #Colours
 White = (255, 255, 255)
 Gray =  (140, 140, 140, 255)
