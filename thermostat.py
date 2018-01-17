@@ -77,7 +77,7 @@ Orientation of thermostat dial:
   x = r*cos(deg+270) = -r*sin(deg)
   y = - r*sin(deg+270) = r*cos(deg)
 '''
-#Thermostat display params
+#Thermostat drawing params - constants
 TICK_MARGIN = 5
 deg_degF = 8
 T180 = 70
@@ -85,6 +85,10 @@ deg_intercept = 180 - T180 * deg_degF
 inner_ring = H/2-H/8
 outer_ring = H/2
 core_ring = H/4
+
+#Thermostat display settings
+setpoint_options = {'low': 1, 'medium': 2, 'high': 4}
+setpoint_divisor = setpoint_options['medium']
 
 #Thermostat HVAC system part
 target = 'target'
@@ -287,9 +291,18 @@ class Temperature_display(pygame.sprite.DirtySprite):
       x = self.x0 - self.radius * math.sin(math.radians(deg+self.adv))
       y = self.y0 + self.radius * math.cos(math.radians(deg+self.adv))
       if changing_setpoint and self.temperatureIndex == target:
-        self.image = font_big.render("%.2f"%system[self.temperatureIndex], True, color)
+        format = "%.2f" if setpoint_divisor == 4 else "%.1f" if setpoint_divisor == 2 else "%d"
+        self.image = font_big.render(format%system[self.temperatureIndex], True, color)
       else:
-        self.image = self.font.render(format%system[self.temperatureIndex], True, color)
+        '''
+        if system[auto] == COOLING: # round to infinity
+          temp = int(math.ceil(float(system[self.temperatureIndex])))
+        if system[auto] == HEATING: # round to zero
+          temp = int(float(system[self.temperatureIndex]))
+        if system[auto] == OFF: # normal rounding
+        '''
+        temp = round(system[self.temperatureIndex])
+        self.image = self.font.render(format%temp, True, color)
       self.rect = self.image.get_rect(center=(x,y))
       self.dirty = 1
     '''
@@ -526,12 +539,15 @@ while running == True:
     if ev.type == pygame.MOUSEMOTION and changing_setpoint:
       ang = angle(pygame.mouse.get_pos())
       dt = deg2heat(ang - initial_angle)
-      if abs(dt) >= 0.25:
+      #if abs(dt) >= 0.25:
+      if abs(dt) >= float(1)/setpoint_divisor:
         initial_angle = ang
         #print "angle=%d, delta heat=%.2f" % (ang, dt)
         system[target] += dt
         #round to nearest dial tick mark (1/4 degF)
-        system[target] = round(system[target]*4)/4
+        #system[target] = round(system[target]*4)/4
+        #round to nearest setpoint divisor
+        system[target] = round(system[target] * setpoint_divisor) / setpoint_divisor
         hvac.setpoint = system[target]
 
     if ev.type == pygame.MOUSEBUTTONUP and changing_setpoint:
