@@ -554,6 +554,8 @@ while running == True:
       changing_setpoint = False
       system[target] += 0.001 #Work-around to temperature display logic ...
       target_temp.update()    #...to display with correct format
+      system[current] += 0.001
+      current_temp.update()   #FIXME: implement a forced-update method?
       pygame.event.set_blocked(pygame.MOUSEMOTION)
 
     if ev.type == pygame.QUIT: running = False # quit the game
