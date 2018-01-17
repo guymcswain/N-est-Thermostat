@@ -286,7 +286,10 @@ class Temperature_display(pygame.sprite.DirtySprite):
       if color == None: color = self.color
       x = self.x0 - self.radius * math.sin(math.radians(deg+self.adv))
       y = self.y0 + self.radius * math.cos(math.radians(deg+self.adv))
-      self.image = self.font.render(format%system[self.temperatureIndex], True, color)
+      if changing_setpoint and self.temperatureIndex == target:
+        self.image = font_big.render("%.2f"%system[self.temperatureIndex], True, color)
+      else:
+        self.image = self.font.render(format%system[self.temperatureIndex], True, color)
       self.rect = self.image.get_rect(center=(x,y))
       self.dirty = 1
     '''
@@ -533,6 +536,8 @@ while running == True:
 
     if ev.type == pygame.MOUSEBUTTONUP and changing_setpoint:
       changing_setpoint = False
+      system[target] += 0.001 #Work-around to temperature display logic ...
+      target_temp.update()    #...to display with correct format
       pygame.event.set_blocked(pygame.MOUSEMOTION)
 
     if ev.type == pygame.QUIT: running = False # quit the game
