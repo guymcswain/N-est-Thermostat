@@ -82,9 +82,12 @@ TICK_MARGIN = 5
 deg_degF = 8
 T180 = 70
 deg_intercept = 180 - T180 * deg_degF
-inner_ring = H/2-H/8
-outer_ring = H/2
-core_ring = H/4
+#inner_ring = H/2-H/8
+#outer_ring = H/2
+ring_outer_radius = H/2 - TICK_MARGIN
+ring_inner_radius = H/2 - H/8
+ring_width = ring_outer_radius - ring_inner_radius
+ring_center_radius = ring_inner_radius + ring_width / 2
 
 #Thermostat display settings
 setpoint_options = {'low': 1, 'medium': 2, 'high': 4}
@@ -262,7 +265,10 @@ class Temperature_display(pygame.sprite.DirtySprite):
     self.color = color
     self.radius = radius
     self.center = (self.x0, self.y0) = (W/2, H/2)
-    self.font = pygame.font.Font(None, H*5/12 - radius * H*3/12/(H/2-H/8))
+    size = H*3/12 if temperatureIndex == target else ring_width
+    self.font = pygame.font.SysFont(myFont, size)
+    #self.font = pygame.font.SysFont(myFont, H*5/12 - radius * H*3/12/(H/2-H/8))
+    #self.font = pygame.font.SysFont(myFont, int(round(float(H*3)/12 - float(radius * 35)/102.5)))
     self.update(self.format, self.color)
   
   def resize(self, (w, h)):
@@ -324,12 +330,12 @@ class Humidity_display(pygame.sprite.DirtySprite):
     pygame.sprite.DirtySprite.__init__(self)
     self.sysindex = sysindex
     self.fontsize = fontsize
-    self.font = pygame.font.Font(None, fontsize)
+    self.font = pygame.font.SysFont(myFont, fontsize)
     self.xy = xy
     self.value = None
   def resize(self, (w, h)):
     self.fontsize = int(self.fontsize * h/float(self.xy[1]))
-    self.font = pygame.font.Font(None, self.fontsize)
+    self.font = pygame.font.SysFont(myFont, self.fontsize)
     self.xy = (0, h)
   def update(self):
     value = system[self.sysindex]
@@ -353,18 +359,18 @@ class AutoMode_display(pygame.sprite.DirtySprite):
     pygame.sprite.DirtySprite.__init__(self)
     self.sysindex = sysindex
     self.fontsize = fontsize
-    self.font = pygame.font.Font(None, fontsize)
+    self.font = pygame.font.SysFont(myFont, fontsize)
     self.xy = xy
     self.value = None
   def resize(self, (w, h)):
     self.fontsize = int(self.fontsize * h/float(self.xy[1]))
-    self.font = pygame.font.Font(None, self.fontsize)
+    self.font = pygame.font.SysFont(myFont, self.fontsize)
     self.xy = (0, h)
   def update(self):
     value = system[self.sysindex]
     if self.value != value: # changed?
       self.value = value
-      text = "Cooling" if value==0 else "Heating" if value==1 else "System Off" if value==3 else "?"
+      text = "COOLING" if value==0 else "HEATING" if value==1 else "SYSTEM OFF" if value==3 else "?"
       self.image = self.font.render(text, True, White)
       self.rect = self.image.get_rect(center=self.xy)
       self.dirty = 1
@@ -405,14 +411,6 @@ class Heaticon(pygame.sprite.DirtySprite):
       self.rect.topleft = self.position
       self.dirty = 1
 
-def landedRedX(position):
-  # Red X in top right corner 25x25 pixels
-  print "landed at %d,%d" % (position[0], position[1])
-  landingRect = pygame.Rect(rectRedX.left-16, rectRedX.top-6, 50, 40)
-  #print "RedX topleft=(%d,%d)" % landingRect.topleft
-  #print "RedX bottomright=(%d,%d)" % landingRect.bottomright
-  return landingRect.collidepoint(position)
-
 class ResizableGroup(pygame.sprite.Group):
   def resize(self, size):
     for sprite in self.sprites():
@@ -437,10 +435,13 @@ Red =   (255, 0  , 0)
 ORANGE =(255, 128, 0)
 
 #Fonts
-font_big = pygame.font.Font(None, 100)
-font_lil = pygame.font.Font(None, 40)
-font_liler = pygame.font.Font(None, 30)
-font_tiny = pygame.font.Font(None, 15)
+listOfFonts = pygame.font.get_fonts()
+print listOfFonts
+myFont = listOfFonts[0]
+font_big = pygame.font.SysFont(myFont, 100)
+font_lil = pygame.font.SysFont(myFont, 40)
+font_liler = pygame.font.SysFont(myFont, 30)
+font_tiny = pygame.font.SysFont(myFont, 15)
 
 #Logic
 fpsClock = pygame.time.Clock()
@@ -470,12 +471,9 @@ sensor_animate = True
 # start rendering
 dial = Dial(W, H)
 
-# Touch red x to quit game
-RedX = font_lil.render("X", False, Red)
-rectRedX = RedX.get_rect()
-rectRedX.move_ip(W/16,H/12) # top left corner
-screen.blit(RedX, rectRedX)
-pygame.display.flip()
+# Touch hotbox to quit game (upper left corner of screen)
+hotbox = pygame.Surface((W/8, H/8), 0, screen)
+hotboxRect = hotbox.get_rect()
 
 # Mode icon
 modicon = Heaticon((W/8,W/8), (W-W/8, 0))
@@ -484,10 +482,10 @@ modicon = Heaticon((W/8,W/8), (W-W/8, 0))
 target_tick = Tick(target, H*33/240 , 3, White)
 current_tick = Tick(current, H*5/48, 3, White)
 target_temp = Temperature_display(0, target, '%d', White)
-#current_temp = Temperature_display(H/2-H/12, current, '%.1f', White)
-current_temp = Temperature_display(H/2-H/12, current, '%d', White)
+current_temp = Temperature_display(ring_center_radius, current, '%d', White)
+#current_temp = Temperature_display(H/2-H/12, current, '%d', White)
 humidity = Humidity_display(rhum, (0,H), 30)
-autoMode = AutoMode_display(auto, (W/2,3*H/4), 25)
+autoMode = AutoMode_display(auto, (W/2,H/2-H/8-15), 20)
 def deg2heat2(deg):
   temp = float(deg) / deg_degF + 47.5
   #round to nearest 1/4 degreeF
@@ -505,20 +503,20 @@ thermostat = pygame.sprite.LayeredDirty( dial, tickmarklist
                                         , humidity, modicon, autoMode)
 
 all = ResizableGroup(thermostat.sprites(), dial)
-xcount = 4
+screenshots = 0
 pygame.event.set_blocked(pygame.MOUSEMOTION)
 while running == True:
   # Process events
   pygame.event.pump() # is this needed???
   for ev in pygame.event.get():
   #ev = pygame.event.wait()
-    if ev.type == pygame.MOUSEBUTTONDOWN and landedRedX(pygame.mouse.get_pos()):
+    if ev.type == pygame.MOUSEBUTTONDOWN and hotboxRect.collidepoint(pygame.mouse.get_pos()):
       #running = False # quit the game
-      if xcount == 4:
-        running = False
+      if screenshots:
+        pygame.image.save(screen, "screenshot"+str(screenshots)+".jpg")
+        screenshots -= 1
       else:
-        xcount += 1
-        pygame.image.save(screen, "screenshot"+str(xcount)+".jpg")
+        running = False
 
     if ev.type == pygame.MOUSEBUTTONDOWN:
       position = pygame.mouse.get_pos()
@@ -526,7 +524,7 @@ while running == True:
       #landed on ring?
       d = distance(position)
       print "distance=%d" % d
-      if inner_ring <= d <= outer_ring:
+      if ring_inner_radius <= d <= ring_outer_radius:
         changing_setpoint = True
         initial_angle = angle(position)
         print "initial angle=%d" % initial_angle
@@ -601,9 +599,7 @@ while running == True:
   #if len(rectlist) > 0:
   #  print "dirty rectangles = %d" % len(rectlist)
   pygame.display.update(rectlist)
-  #Fixme: make this a seperate sprite?
-  screen.blit(RedX, rectRedX)
-  pygame.display.flip()
+  
   # Control timing (and generate new events)
   fpsClock.tick(FPS)
   #if s.type() == 'dummy' and sensor_animate:
