@@ -41,28 +41,7 @@ else: # desktop running in X11 windows
 print "screen size is (%d, %d)" % (W, H)
 screen.fill((0,0,0))
 pygame.display.update()
-'''
-# Set up sensor if on RPI, else use dummy if on pc
-s = 0 # sensor instance, eventually
-import pigpio
-import Dummy_sensor
-import DHT11
-import socket
-try:
-  sock = socket.create_connection(('10.0.0.105', 8888), timeout=3)
-  print 'got sock connection!'
-  pi = pigpio.pi("10.0.0.105")  #surveyor pi
-  if not pi.connected: #use dummy sensor
-    print 'not connected, wtf?  exiting ...'
-    sys.exit()
-  print 'connected to surveyor!' 
-  s = DHT11.sensor(pi, 22)
-except:
-  print 'no connection to surveyor sensor, using dummy'
-  s = Dummy_sensor.Sensor(68, 51)
 
-READ_SENSOR_INTERVAL = 3 # Intervals <=2 seconds will eventually hang the DHT22.
-'''
 '''
 Orientation of thermostat dial:
   The origin of dial is the center of the screen (W/2, H/2).  The bottom of the dial
@@ -82,8 +61,6 @@ TICK_MARGIN = 5
 deg_degF = 8
 T180 = 70
 deg_intercept = 180 - T180 * deg_degF
-#inner_ring = H/2-H/8
-#outer_ring = H/2
 ring_outer_radius = H/2 - TICK_MARGIN
 ring_inner_radius = H/2 - H/8
 ring_width = ring_outer_radius - ring_inner_radius
@@ -267,8 +244,6 @@ class Temperature_display(pygame.sprite.DirtySprite):
     self.center = (self.x0, self.y0) = (W/2, H/2)
     size = H*3/12 if temperatureIndex == target else ring_width
     self.font = pygame.font.SysFont(myFont, size)
-    #self.font = pygame.font.SysFont(myFont, H*5/12 - radius * H*3/12/(H/2-H/8))
-    #self.font = pygame.font.SysFont(myFont, int(round(float(H*3)/12 - float(radius * 35)/102.5)))
     self.update(self.format, self.color)
   
   def resize(self, (w, h)):
@@ -277,7 +252,6 @@ class Temperature_display(pygame.sprite.DirtySprite):
     self.update(self.format, self.color)
 
   def update(self, format=None, color=None):
-    #if system[mode] != OFF or self.temperatureIndex == current:
     if system[mode] == OFF and self.temperatureIndex == target:
       self.visible = 0
       self.dirty = 1
@@ -300,29 +274,10 @@ class Temperature_display(pygame.sprite.DirtySprite):
         format = "%.2f" if setpoint_divisor == 4 else "%.1f" if setpoint_divisor == 2 else "%d"
         self.image = font_big.render(format%system[self.temperatureIndex], True, color)
       else:
-        '''
-        if system[auto] == COOLING: # round to infinity
-          temp = int(math.ceil(float(system[self.temperatureIndex])))
-        if system[auto] == HEATING: # round to zero
-          temp = int(float(system[self.temperatureIndex]))
-        if system[auto] == OFF: # normal rounding
-        '''
         temp = round(system[self.temperatureIndex])
         self.image = self.font.render(format%temp, True, color)
       self.rect = self.image.get_rect(center=(x,y))
       self.dirty = 1
-    '''
-    else:
-      x = self.x0 - self.radius * math.sin(math.radians(0))
-      y = self.y0 + self.radius * math.cos(math.radians(0))
-      if format == None: format = self.format
-      if color == None: color = self.color
-      self.image = font_lil.render("", True, color)
-      self.rect = self.image.get_rect(center=(x,y))
-      self.dirty = 1
-      self.temperature = -99 # force update when mode switches on
-    '''
-  #def move(self, scale): #zoom?
 
 class Humidity_display(pygame.sprite.DirtySprite):
   #Display humidity value with color scaled to value
@@ -451,20 +406,7 @@ TRIGGER_SENSOR = pygame.USEREVENT + 2
 RESIZE_SCREEN = pygame.USEREVENT + 3
 initial_angle = 0
 changing_setpoint = False
-#hvac.mode = HEATING #system[mode] = HEATING
 
-#if s.type() == 'dummy': s.systemMode(system[mode])
-#system[relays] = SYSTEM_OFF
-#if s.type() == 'dummy': s.systemState(system[relays])
-
-#hvac.setpoint = 75 #system[target] = 75
-#system[current] = 70.25
-#hvac.humidity = 30 #system[rhum] = 30
-
-#if s.type() == 'DHT11':
-#  pygame.time.set_timer(TRIGGER_SENSOR, READ_SENSOR_INTERVAL*1000)
-#elif s.type() == 'dummy':
-#  pygame.time.set_timer(TRIGGER_SENSOR, READ_SENSOR_INTERVAL*1000)
 running = True
 sensor_animate = True
 
@@ -483,7 +425,6 @@ target_tick = Tick(target, H*33/240 , 3, White)
 current_tick = Tick(current, H*5/48, 3, White)
 target_temp = Temperature_display(0, target, '%d', White)
 current_temp = Temperature_display(ring_center_radius, current, '%d', White)
-#current_temp = Temperature_display(H/2-H/12, current, '%d', White)
 humidity = Humidity_display(rhum, (0,H), 30)
 autoMode = AutoMode_display(auto, (W/2,H/2-H/8-15), 20)
 def deg2heat2(deg):
@@ -509,9 +450,7 @@ while running == True:
   # Process events
   pygame.event.pump() # is this needed???
   for ev in pygame.event.get():
-  #ev = pygame.event.wait()
     if ev.type == pygame.MOUSEBUTTONDOWN and hotboxRect.collidepoint(pygame.mouse.get_pos()):
-      #running = False # quit the game
       if screenshots:
         pygame.image.save(screen, "screenshot"+str(screenshots)+".jpg")
         screenshots -= 1
@@ -520,7 +459,6 @@ while running == True:
 
     if ev.type == pygame.MOUSEBUTTONDOWN:
       position = pygame.mouse.get_pos()
-      #sensor_animate = False
       #landed on ring?
       d = distance(position)
       print "distance=%d" % d
@@ -532,18 +470,14 @@ while running == True:
       elif modicon.rect.collidepoint(position):
         system[mode] = (system[mode] + 1) % 4
         hvac.mode = system[mode]
-        #if s.type() == 'dummy': s.systemMode(system[mode])
 
     if ev.type == pygame.MOUSEMOTION and changing_setpoint:
       ang = angle(pygame.mouse.get_pos())
       dt = deg2heat(ang - initial_angle)
-      #if abs(dt) >= 0.25:
       if abs(dt) >= float(1)/setpoint_divisor:
         initial_angle = ang
         #print "angle=%d, delta heat=%.2f" % (ang, dt)
         system[target] += dt
-        #round to nearest dial tick mark (1/4 degF)
-        #system[target] = round(system[target]*4)/4
         #round to nearest setpoint divisor
         system[target] = round(system[target] * setpoint_divisor) / setpoint_divisor
         hvac.setpoint = system[target]
@@ -557,21 +491,7 @@ while running == True:
       pygame.event.set_blocked(pygame.MOUSEMOTION)
 
     if ev.type == pygame.QUIT: running = False # quit the game
-    '''
-    if ev.type == TRIGGER_SENSOR:
-      s.trigger()
-      if s.type() == 'DHT11':
-        pygame.time.set_timer(POLL_SENSOR, 200)
-      elif s.type() == 'dummy':
-        pygame.event.post(pygame.event.Event(POLL_SENSOR))
-
-    if ev.type == POLL_SENSOR:
-      if s.type() == 'DHT11': pygame.time.set_timer(POLL_SENSOR, 0)
-      #(current, rhum) = getTemperature(s) # WAIT 200 MSEC!!!!
-      system[current] = s.temperature()
-      system[rhum] = s.humidity()
-      system[current] = round(system[current]*4)/4 # round temperature up to nearest 0.25F
-    '''
+    
     if ev.type == pygame.VIDEORESIZE and machine_type == desktop:
       '''
       To ignore stream of events while dragging the mouse, reset a timer to generate
@@ -602,13 +522,10 @@ while running == True:
   
   # Control timing (and generate new events)
   fpsClock.tick(FPS)
-  #if s.type() == 'dummy' and sensor_animate:
-    #print 'post event TRIGGER_SENSOR'
-    #pygame.event.post(pygame.event.Event(TRIGGER_SENSOR))
 
 # terminate
 pygame.quit()
-#s.cancel()
+
 try:
   pi
   pi.stop()
